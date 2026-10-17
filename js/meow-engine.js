@@ -11,7 +11,10 @@ const Meow = (function () {
   const COUNTS = { attack: 4, skip: 4, favor: 4, nope: 5, shuffle: 4, future: 5, cat1: 4, cat2: 4, cat3: 4, cat4: 4, cat5: 4 };
   const STEALABLE = ['defuse', 'attack', 'skip', 'favor', 'nope', 'shuffle', 'future'].concat(CATS);
   const BOT_LEVELS = ['easy', 'normal', 'hard'];
-  const DEFAULT_SETTINGS = { nopeSec: 5, hand: 7, combos: true };
+  const MODES = ['solo', 'team'];                       // solo = free-for-all, team = 2v2 (exactly 4 seats, teammates sit opposite)
+  const COOP_TRIGGERS = ['nodefuse', 'always'];         // team mode: minigame only when the drawer has no Defuse / on every bomb
+  const COOP_GAMES = ['zigzag', 'wires', 'lock'];       // the cooperative defuse minigames (see js/meow-coop.js)
+  const DEFAULT_SETTINGS = { nopeSec: 5, hand: 7, combos: true, mode: 'solo', coop: 'nodefuse' };
   const NOPE_SECS = [3, 5, 8, 12];
 
   function normalizeSettings(s) {
@@ -19,6 +22,8 @@ const Meow = (function () {
     s.nopeSec = NOPE_SECS.indexOf(+s.nopeSec) >= 0 ? +s.nopeSec : 5;
     s.hand = Math.max(4, Math.min(8, parseInt(s.hand, 10) || 7));
     s.combos = s.combos !== false;
+    s.mode = MODES.indexOf(s.mode) >= 0 ? s.mode : 'solo';
+    s.coop = COOP_TRIGGERS.indexOf(s.coop) >= 0 ? s.coop : 'nodefuse';
     return s;
   }
   function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
@@ -50,8 +55,21 @@ const Meow = (function () {
     for (let i = 0; i < extra; i++) deck.push('defuse');
     for (let i = 0; i < n - 1; i++) deck.push('bomb');
     shuffle(deck);
+    const team = settings.mode === 'team' && n === 4;
+    const teams = team ? { [order[0]]: 'A', [order[1]]: 'B', [order[2]]: 'A', [order[3]]: 'B' } : null;   // teammates sit opposite each other
     return { v: 0, pid: 0, order, alive, hands, deck, discard: [], turn: order.indexOf(first) >= 0 ? first : order[0], left: 1,
-             phase: 'play', pending: null, give: null, reins: null, peek: null, winner: null, log: [], ev: [] };
+             phase: 'play', pending: null, give: null, reins: null, rescue: null, peek: null, winner: null, winTeam: null,
+             mode: team ? 'team' : 'solo', coop: settings.coop, teams, lastCoop: null, log: [], ev: [] };
+  }
+  // ---- teams (2v2) ------------------------------------------------------------------------------------
+  const teamOf = (g, c) => (g && g.teams && g.teams[c]) || null;
+  const isAlly = (g, a, b) => !!g && !!g.teams && a !== b && g.teams[a] === g.teams[b];
+  const mateOf = (g, c) => (g && g.teams) ? (g.order.find(o => o !== c && g.teams[o] === g.teams[c]) || null) : null;
+  const aliveMate = (g, c) => { const m = mateOf(g, c); return m && g.alive[m] ? m : null; };
+  function previewTeams(colors) {                       // same pairing newGame uses, for the waiting room
+    const order = COLORS.filter(c => colors.indexOf(c) >= 0), out = {};
+    if (order.length === 4) order.forEach((c, i) => { out[c] = i % 2 ? 'B' : 'A'; });
+    return out;
   }
 
   const aliveList = g => g.order.filter(c => g.alive[c]);
@@ -60,13 +78,20 @@ const Meow = (function () {
     for (let s = 1; s <= g.order.length; s++) { const c = g.order[(i + s) % g.order.length]; if (g.alive[c]) return c; }
     return from;
   }
-  function logEv(g, e) { g.ev.push(e); g.log.push(e); if (g.log.length > 60) g.log.shift(); }
+  function nextFoe(g, from) {         // next living player that is not on `from`'s team (who an Attack lands on in 2v2)
+    const i = g.order.indexOf(from);
+    for (let s = 1; s <= g.order.length; s++) { const c = g.order[(i + s) % g.order.length]; if (g.alive[c] && c !== from && !isAlly(g, from, c)) return c; }
+    return nextAlive(g, from);
+  }
+  // `ev` (this action's events, drives animations / the receiver's toast) keeps card names; the permanent `log` never does,
+  // so nobody can read which card was given / stolen / peeked at afterwards.
+  function logEv(g, e) { g.ev.push(e); const l = Object.assign({}, e); delete l.card; delete l.cards; g.log.push(l); if (g.log.length > 60) g.log.shift(); }
   function startAction(g) { g.ev = []; g.v++; }
   function removeOne(hand, k) { const i = hand.indexOf(k); if (i < 0) return false; hand.splice(i, 1); return true; }
 
   // ---- turn flow --------------------------------------------------------------------------------
   function endTurns(g, attack) {
-    if (attack) { g.left = g.left + 1; g.turn = nextAlive(g, g.turn); }
+    if (attack) { g.left = g.left + 1; g.turn = g.teams ? nextFoe(g, g.turn) : nextAlive(g, g.turn); }
     else { g.left--; if (g.left <= 0) { g.turn = nextAlive(g, g.turn); g.left = 1; } }
     g.phase = 'play';
     logEv(g, { k: 'turn', by: g.turn, left: g.left });
@@ -74,8 +99,12 @@ const Meow = (function () {
   function eliminate(g, c) {
     g.discard = g.discard.concat(g.hands[c], ['bomb']); g.hands[c] = []; g.alive[c] = false;
     logEv(g, { k: 'explode', by: c });
+    g.rescue = null;
     const live = aliveList(g);
-    if (live.length <= 1) { g.phase = 'over'; g.winner = live[0] || null; logEv(g, { k: 'win', by: g.winner }); return; }
+    if (g.teams) {                                      // 2v2: the game ends when one whole team is out
+      const alive = {}; live.forEach(x => { alive[g.teams[x]] = 1; }); const ts = Object.keys(alive);
+      if (ts.length <= 1) { g.phase = 'over'; g.winTeam = ts[0] || null; g.winner = live[0] || null; logEv(g, { k: 'win', by: g.winner, team: g.winTeam }); return; }
+    } else if (live.length <= 1) { g.phase = 'over'; g.winner = live[0] || null; logEv(g, { k: 'win', by: g.winner }); return; }
     if (g.turn === c) { g.turn = nextAlive(g, c); g.left = 1; }
     g.phase = 'play'; g.pending = null;
     logEv(g, { k: 'turn', by: g.turn, left: g.left });
@@ -93,12 +122,36 @@ const Meow = (function () {
     if (g.peek) { g.peek.cards.shift(); if (!g.peek.cards.length) g.peek = null; }
     if (card === 'bomb') {
       logEv(g, { k: 'bomb', by: c });
+      const hasDef = cnt(g.hands[c], 'defuse') > 0, mate = g.teams ? aliveMate(g, c) : null;
+      if (mate && (g.coop === 'always' || !hasDef)) { startRescue(g, c, mate, hasDef); return g; }   // 2v2: the boat defuses together
       if (removeOne(g.hands[c], 'defuse')) { g.discard.push('defuse'); g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c }); }
       else eliminate(g, c);
       return g;
     }
-    g.hands[c].push(card); logEv(g, { k: 'draw', by: c, left: g.deck.length });
+    g.hands[c].push(card); logEv(g, { k: 'draw', by: c, left: g.deck.length, card });
     endTurns(g, false);
+    return g;
+  }
+  // ---- 2v2 cooperative defuse -----------------------------------------------------------------------
+  // The bomb is in limbo (not in the pile, not in a hand) while phase === 'rescue'. The two teammates play a minigame
+  // (js/meow-coop.js, generated from `seed`); one client reports the result with rescueEnd(). Success -> the drawer slides
+  // the bomb back like a normal Defuse; failure -> a Defuse in hand (if any) is burned, otherwise the DRAWER explodes.
+  function startRescue(g, c, mate, hasDef) {
+    const pool = COOP_GAMES.filter(k => k !== g.lastCoop), game = pool[Math.floor(Math.random() * pool.length)];
+    g.lastCoop = game;
+    const swap = Math.random() < 0.5;
+    g.phase = 'rescue';
+    g.rescue = { id: g.v, by: c, mate, p1: swap ? mate : c, p2: swap ? c : mate, game, seed: 1 + Math.floor(Math.random() * 2147483000), hasDef: hasDef ? 1 : 0 };
+    logEv(g, { k: 'rescue', by: c, mate, game });
+  }
+  function rescueEnd(g, id, ok) {
+    if (!g || g.phase !== 'rescue' || !g.rescue || g.rescue.id !== id) return null;
+    startAction(g);
+    const r = g.rescue, c = r.by; g.rescue = null;
+    if (ok) { logEv(g, { k: 'rescued', by: c, mate: r.mate, kept: r.hasDef && g.coop === 'always' ? 1 : 0 }); g.phase = 'reinsert'; g.reins = { by: c }; return g; }
+    logEv(g, { k: 'rescueFail', by: c, mate: r.mate });
+    if (r.hasDef && removeOne(g.hands[c], 'defuse')) { g.discard.push('defuse'); g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c }); }
+    else eliminate(g, c);
     return g;
   }
   function reinsert(g, c, pos) {
@@ -115,7 +168,7 @@ const Meow = (function () {
   // ---- playing cards --------------------------------------------------------------------------------
   function kindOf(kinds) { return kinds.length === 1 ? kinds[0] : (kinds.length === 2 ? 'pair' : 'triple'); }
   function needsTarget(kinds) { const k = kindOf(kinds); return k === 'favor' || k === 'pair' || k === 'triple'; }
-  function validTargets(g, c) { return aliveList(g).filter(o => o !== c && g.hands[o].length > 0); }
+  function validTargets(g, c) { return aliveList(g).filter(o => o !== c && !isAlly(g, c, o) && g.hands[o].length > 0); }   // never your teammate
   // opts: {target, name}.  settings is optional (only `combos` is read).
   function canPlay(g, c, kinds, opts, settings) {
     opts = opts || {};
@@ -239,9 +292,10 @@ const Meow = (function () {
   function botReact(g, c, level) {          // phase 'pending': 'nope' or 'pass'
     level = BOT_LEVELS.indexOf(level) >= 0 ? level : 'normal';
     if (!canNope(g, c)) return 'pass';
-    const p = g.pending, cancelled = p.nopes.length % 2 === 1, mine = p.by === c, P = { easy: 0.3, normal: 0.7, hard: 0.95 }[level];
-    if (mine) return cancelled && Math.random() < P ? 'nope' : 'pass';
-    const hurts = p.target === c || (p.kind === 'attack' && nextAlive(g, p.by) === c);
+    const p = g.pending, cancelled = p.nopes.length % 2 === 1, mine = p.by === c || isAlly(g, p.by, c), P = { easy: 0.3, normal: 0.7, hard: 0.95 }[level];
+    if (mine) return cancelled && Math.random() < P ? 'nope' : 'pass';      // defend my own (and my teammate's) cards
+    const victim = p.kind === 'attack' ? (g.teams ? nextFoe(g, p.by) : nextAlive(g, p.by)) : null;
+    const hurts = p.target === c || isAlly(g, p.target, c) || (victim && (victim === c || isAlly(g, victim, c)));
     if (!cancelled && hurts) return Math.random() < P ? 'nope' : 'pass';
     if (!cancelled && level === 'hard' && (p.kind === 'future' || p.kind === 'favor') && Math.random() < 0.2) return 'nope';
     return 'pass';
@@ -260,8 +314,8 @@ const Meow = (function () {
     return Math.random() < 0.4 ? Math.min(1, n) : Math.floor(Math.random() * (n + 1));
   }
 
-  return { COLORS, CATS, ACTIONS, COUNTS, STEALABLE, BOT_LEVELS, DEFAULT_SETTINGS, NOPE_SECS, normalizeSettings, normalize, newGame, aliveList, nextAlive, cnt,
-           draw, reinsert, canPlay, play, canNope, nope, pass, allPassed, resolve, giveCard, needsTarget, validTargets, kindOf, bombProb,
+  return { COLORS, CATS, ACTIONS, COUNTS, STEALABLE, BOT_LEVELS, DEFAULT_SETTINGS, NOPE_SECS, MODES, COOP_TRIGGERS, COOP_GAMES, normalizeSettings, normalize, newGame, aliveList, nextAlive, nextFoe, cnt,
+           teamOf, isAlly, mateOf, previewTeams, rescueEnd, draw, reinsert, canPlay, play, canNope, nope, pass, allPassed, resolve, giveCard, needsTarget, validTargets, kindOf, bombProb,
            botPlay, botReact, botGive, botReinsert, shuffle };
 })();
 if (typeof module !== 'undefined') module.exports = Meow;

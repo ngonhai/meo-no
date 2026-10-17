@@ -47,3 +47,11 @@ FLOW
   end-turn.mp3        turn passes to someone else
   win.mp3             you win / game ends
   lose.mp3            you lose
+
+2v2 MINIGAMES (optional, synth placeholders play until the files exist)
+  rescue-go.mp3       minigame starts (after 3-2-1)
+  snip.wav            wire cut / lock symbol changed
+  zap.wav             wrong wire cut
+  bonk.wav            zig-zag dot hits a wall
+  say-ping.wav        teammate speech bubble
+  rescue-win.mp3 / rescue-fail.mp3   minigame solved / failed

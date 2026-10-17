@@ -7,7 +7,7 @@
   const ORDER = ['defuse', 'nope', 'attack', 'skip', 'shuffle', 'future', 'favor', 'cat1', 'cat2', 'cat3', 'cat4', 'cat5', 'bomb'];
   const U = {
     screen: 'loading', sel: {}, timers: [], tickTimers: [], driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null,
-    fxV: null, fxGen: 0, fxTimers: new Set(), handSig: null, prevHand: null, dealing: false, winV: null, reTimer: null, giveSel: null, chips: {}, lastTurn: null
+    fxV: null, freshV: null, fresh: null, freshWhy: null, fxTimers: [], handSig: null, prevHand: null, dealing: false, winV: null, reTimer: null, giveSel: null, chips: {}, lastTurn: null
   };
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -27,17 +27,6 @@
   const myName = () => (($('input-name').value || '').trim().slice(0, 16)) || t('player');
   function clearTimers() { U.timers.forEach(clearTimeout); U.timers = []; }
   function clearTicks() { U.tickTimers.forEach(clearTimeout); U.tickTimers = []; }
-  // Effect timers: dropped if the tab is hidden when they fire (browsers freeze animations in background tabs, so
-  // they would all pile up and play at once on return) or if they were cancelled by cancelFx().
-  function fxLater(ms, fn) {
-    const gen = U.fxGen;
-    const id = setTimeout(() => { U.fxTimers.delete(id); if (document.hidden || gen !== U.fxGen) return; fn(); }, ms);
-    U.fxTimers.add(id);
-  }
-  function cancelFx() {
-    U.fxGen++; U.fxTimers.forEach(clearTimeout); U.fxTimers.clear();
-    FX.clear(); const tt = $('toast'); if (tt) tt.classList.remove('show');
-  }
 
   // ---------------------------------------------------------------------------------------------------------------
   // cards
@@ -74,6 +63,7 @@
   function seatLabel(r, c) { const s = r.seats[c]; return s ? (s.name || t('botNames.' + c)) : ''; }
   function renderWaiting(r) {
     const me = myColor(r), host = Net.isHost(r), local = Net.S.mode === 'local';
+    const team = r.settings.mode === 'team', tmap = team ? M.previewTeams(M.COLORS.filter(c => r.seats[c])) : {};
     $('room-code-display').textContent = local ? '—' : Net.S.code;
     $('room-code-box').classList.toggle('local', local);
     $('room-code-label').textContent = local ? t('offlineRoom') : t('roomCodeShare');
@@ -84,7 +74,7 @@
         '<div class="seat-av">' + CatArt.avatarSVG(c) + '</div><div class="seat-body"><div class="seat-color">' + esc(t('colors.' + c)) + '</div>';
       if (s) {
         h += '<div class="seat-name">' + esc(seatLabel(r, c)) + '</div><div class="seat-tags">' +
-          (r.hostUid === s.uid || (local && !s.bot) ? '<span class="tag">' + t('host') + '</span>' : '') + (s.bot ? '<span class="tag">' + t('bot') + '</span>' : '') + (me === c ? '<span class="tag you">' + t('you') + '</span>' : '') +
+          (r.hostUid === s.uid || (local && !s.bot) ? '<span class="tag">' + t('host') + '</span>' : '') + (s.bot ? '<span class="tag">' + t('bot') + '</span>' : '') + (me === c ? '<span class="tag you">' + t('you') + '</span>' : '') + (tmap[c] ? '<span class="tag team-' + tmap[c] + '">⛵ ' + esc(t('teamNames.' + tmap[c])) + '</span>' : '') +
           (!s.bot && !s.local && s.connected === false ? '<span class="tag off">offline</span>' : '') + '</div>';
         if (s.bot && host) {
           h += '<div class="seat-ctl"><span class="seg">' + M.BOT_LEVELS.map(l => '<button type="button" class="seg-btn' + (Net.botLevel(s) === l ? ' on' : '') + '" data-act="lvl" data-color="' + c + '" data-val="' + l + '">' + t('level.' + l) + '</button>').join('') +
@@ -100,8 +90,8 @@
     renderRules($('rules-list'), r.settings, host);
     $('rules-readonly-hint').style.display = host ? 'none' : '';
     const n = Object.keys(r.seats).filter(c => r.seats[c]).length;
-    const sb = $('btn-start-game'); sb.textContent = t('start'); sb.style.display = host ? '' : 'none'; sb.disabled = n < 2;
-    const wh = $('waiting-hint'); wh.textContent = host ? (n < 2 ? t('needTwo') : '') : t('waitHost');
+    const sb = $('btn-start-game'); sb.textContent = t('start'); sb.style.display = host ? '' : 'none'; sb.disabled = n < 2 || (team && n !== 4);
+    const wh = $('waiting-hint'); wh.textContent = host ? (team && n !== 4 ? t('needFour') : (n < 2 ? t('needTwo') : '')) : t('waitHost');
   }
   function renderRules(box, s, editable) {
     const dis = editable ? '' : ' disabled';
@@ -109,7 +99,9 @@
     box.innerHTML =
       '<div class="rule-row"><div><b>' + t('set.nopeSec') + '</b><p class="muted">' + t('set.nopeHint') + '</p></div>' + seg('nopeSec', M.NOPE_SECS, s.nopeSec, v => t('set.secs', v)) + '</div>' +
       '<div class="rule-row"><div><b>' + t('set.hand') + '</b><p class="muted">' + t('set.handHint') + '</p></div><span class="stepper"><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="-1"' + dis + '>−</button><b>' + s.hand + '</b><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="1"' + dis + '>+</button></span></div>' +
-      '<div class="rule-row"><div><b>' + t('set.combos') + '</b><p class="muted">' + t('set.combosHint') + '</p></div>' + seg('combos', [true, false], s.combos, v => v ? t('set.on') : t('set.off')) + '</div>';
+      '<div class="rule-row"><div><b>' + t('set.combos') + '</b><p class="muted">' + t('set.combosHint') + '</p></div>' + seg('combos', [true, false], s.combos, v => v ? t('set.on') : t('set.off')) + '</div>' +
+      '<div class="rule-row"><div><b>' + t('set.mode') + '</b><p class="muted">' + t('set.modeHint') + '</p></div>' + seg('mode', M.MODES, s.mode, v => t('set.' + v)) + '</div>' +
+      (s.mode === 'team' ? '<div class="rule-row sub"><div><b>' + t('set.coop') + '</b><p class="muted">' + t('set.coopHint') + '</p></div>' + seg('coop', M.COOP_TRIGGERS, s.coop, v => t(v === 'always' ? 'set.coopAlways' : 'set.coopNoDefuse')) + '</div>' : '');
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -118,9 +110,11 @@
     const g = r.g, s = r.seats[c];
     return [nm(r, c), g.hands[c].length, g.alive[c] ? 1 : 0, g.turn === c && g.phase !== 'over' ? 1 : 0, g.turn === c ? g.left : 0, s && s.bot ? 1 : 0, s && !s.bot && !s.local && s.connected === false ? 1 : 0, LANG].join('|');
   }
+  const teamTag = (g, c) => g.teams && g.teams[c] ? ' <span class="tag team-' + g.teams[c] + '">⛵' + g.teams[c] + '</span>' : '';
+  const allyOf = (g, a, b) => !!g.teams && a !== b && g.teams[a] === g.teams[b];
   function chipHTML(r, c) {
     const g = r.g, s = r.seats[c], alive = g.alive[c], turn = g.turn === c && g.phase !== 'over';
-    return '<div class="opp-av">' + (alive ? CatArt.avatarSVG(c) : CatArt.skullSVG()) + '</div><div class="opp-info"><div class="opp-name">' + nm(r, c) + (s && s.bot ? ' <em>' + t('bot') + '</em>' : '') + '</div>' +
+    return '<div class="opp-av">' + (alive ? CatArt.avatarSVG(c) : CatArt.skullSVG()) + '</div><div class="opp-info"><div class="opp-name">' + nm(r, c) + (s && s.bot ? ' <em>' + t('bot') + '</em>' : '') + teamTag(g, c) + '</div>' +
       '<div class="opp-meta">' + (alive ? '<span class="mini-back">' + CatArt.backHTML('mini-back-svg') + '</span><b>' + g.hands[c].length + '</b>' + (turn && g.left > 1 ? '<span class="tag">' + t('turnsLeft', g.left) + '</span>' : '') : '<span class="muted">' + t('outLabel') + '</span>') +
       (s && !s.bot && !s.local && s.connected === false ? ' <span class="tag off">offline</span>' : '') + '</div></div>';
   }
@@ -132,8 +126,8 @@
       let el = $('opp-' + c);
       if (!el) { el = document.createElement('div'); el.id = 'opp-' + c; el.dataset.color = c; box.appendChild(el); }
       if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
-      el.className = 'opp' + (g.alive[c] ? '' : ' out') + (g.turn === c && g.phase !== 'over' && g.alive[c] ? ' turn' : '');
-      el.style.setProperty('--sc', 'var(--' + c + ')');
+      el.className = 'opp' + (allyOf(g, me, c) ? ' ally' : '') + (g.alive[c] ? '' : ' out') + (g.turn === c && g.phase !== 'over' && g.alive[c] ? ' turn' : '');
+      el.style.setProperty('--sc', 'var(--' + c + ')'); el.style.setProperty('--tm', g.teams && g.teams[c] === 'B' ? 'var(--teamB)' : 'var(--teamA)');
       const sig = chipSig(r, c);
       if (U.chips[c] !== sig) { el.innerHTML = chipHTML(r, c); U.chips[c] = sig; }
     });
@@ -150,9 +144,11 @@
       known.style.display = '';
     } else known.style.display = 'none';
   }
+  const winners = g => g.order.filter(c => g.teams && g.teams[c] === g.winTeam);
   function renderBanner(r, me) {
     const g = r.g, b = $('turn-banner'); let txt, col = g.turn;
-    if (g.phase === 'over') { txt = t('winTitle', nm(r, g.winner)); col = g.winner; }
+    if (g.phase === 'over') { txt = g.winTeam ? t('winTeam', nm(r, winners(g)[0]), nm(r, winners(g)[1] || winners(g)[0])) : t('winTitle', nm(r, g.winner)); col = g.winner; }
+    else if (g.phase === 'rescue') { txt = t('rescueBanner', nm(r, g.rescue.by), nm(r, g.rescue.mate)); col = g.rescue.by; }
     else if (g.phase === 'pending') { txt = t('pending', nm(r, g.pending.by)); col = g.pending.by; }
     else if (g.phase === 'give') { txt = t('giveWait', nm(r, g.give.from), nm(r, g.give.to)); col = g.give.from; }
     else if (g.phase === 'reinsert') { txt = g.reins.by === me ? t('reinsertTitle') : t('waitingOn', nm(r, g.reins.by)); col = g.reins.by; }
@@ -161,7 +157,8 @@
     if (me && !g.alive[me] && g.phase !== 'over') txt = t('youOut');
     b.textContent = ''; b.innerHTML = txt; b.style.setProperty('--tc', 'var(--' + col + ')');
     b.classList.toggle('mine', !!me && g.turn === me && g.phase === 'play');
-    $('sub-hint').textContent = (me && g.alive[me] && g.turn === me && g.phase === 'play') ? t('turnHint') : '';
+    const mine = !!me && g.alive[me] && g.turn === me && g.phase === 'play';
+    $('sub-hint').textContent = g.phase === 'rescue' ? t('rescueHint') : mine ? t('turnHint') : ((me && g.alive[me] && U.fresh && U.freshWhy === 'draw' && g.phase !== 'over') ? t('drewHint', cname(U.fresh)) : '');
   }
   function playText(r, p) {
     const n = nm(r, p.by), tg = p.target ? nm(r, p.target) : '';
@@ -182,7 +179,7 @@
       '<div class="nb-sub">' + t('nopeWindow') + (p.nopes.length ? ' · <b>' + t('nopeCount', p.nopes.length) + '</b>' : '') + '</div><div class="nb-time"><i style="animation-duration:' + ms + 'ms"></i></div>' +
       '<div class="nb-actions"><button type="button" class="btn btn-nope" data-act="nope">' + t('nopeBtn') + '</button><button type="button" class="btn btn-secondary" data-act="pass">' + t('passBtn') + '</button></div></div>';
     bar.classList.toggle('can', canNope);
-    if (canNope && ms >= 4000) [3, 2, 1].forEach(s => U.tickTimers.push(setTimeout(() => { if (!document.hidden) playSound('timerTick'); }, ms - s * 1000)));
+    if (canNope && ms >= 4000) [3, 2, 1].forEach(s => U.tickTimers.push(setTimeout(() => playSound('timerTick'), ms - s * 1000)));
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -198,6 +195,15 @@
     const n = el.children.length, W = el.clientWidth - 24, cw = c.offsetWidth;
     let ov = n > 1 ? (W - cw) / (n - 1) - cw : 0; ov = Math.max(-cw * 0.84, Math.min(8, ov));
     el.style.setProperty('--ov', ov + 'px');
+  }
+  // remember the card I just drew / received so it stays marked (✦) in my hand until my next move
+  function trackFresh(r, me) {
+    const g = r.g; if (U.freshV == null) { U.freshV = g.v; return; } if (g.v <= U.freshV) return; U.freshV = g.v;
+    if (!me) return;
+    g.ev.forEach(e => {
+      if (e.k === 'draw' && e.by === me && e.card) { U.fresh = e.card; U.freshWhy = 'draw'; }
+      else if ((e.k === 'give' || e.k === 'steal') && e.by === me && e.card) { U.fresh = e.card; U.freshWhy = 'get'; }
+    });
   }
   function renderHand(r, me) {
     const g = r.g, el = $('hand'), alive = !!me && g.alive[me];
@@ -235,7 +241,7 @@
     if (me) {
       const mc = $('me-chip'); mc.style.setProperty('--sc', 'var(--' + me + ')');
       mc.className = 'me-chip' + (g.turn === me && g.phase !== 'over' && alive ? ' turn' : '') + (alive ? '' : ' out');
-      mc.innerHTML = '<div class="opp-av">' + (alive ? CatArt.avatarSVG(me) : CatArt.skullSVG()) + '</div><div class="opp-info"><div class="opp-name">' + nm(r, me) + ' <em>' + t('you') + '</em></div><div class="opp-meta">' + t('cardsN', g.hands[me].length) + '</div></div>';
+      mc.innerHTML = '<div class="opp-av">' + (alive ? CatArt.avatarSVG(me) : CatArt.skullSVG()) + '</div><div class="opp-info"><div class="opp-name">' + nm(r, me) + ' <em>' + t('you') + '</em>' + teamTag(g, me) + '</div><div class="opp-meta">' + t('cardsN', g.hands[me].length) + '</div></div>';
     }
   }
 
@@ -262,10 +268,10 @@
   }
   function sendPlay(kinds, opts) {
     const r = room(), me = myColor(r); if (!r || !r.g || !me) return;
-    closeModal(); U.sel = {};
+    closeModal(); U.sel = {}; U.fresh = null;
     Net.doPlay(r.g.v, me, kinds, opts).then(ok => { if (!ok) playSound('error'); });
   }
-  function doDraw() { const r = room(), me = myColor(r); if (!r || !r.g || !me) return; if (r.g.phase !== 'play' || r.g.turn !== me) { playSound('error'); return; } U.sel = {}; Net.doDraw(r.g.v, me).then(ok => { if (!ok) playSound('error'); }); }
+  function doDraw() { const r = room(), me = myColor(r); if (!r || !r.g || !me) return; if (r.g.phase !== 'play' || r.g.turn !== me) { playSound('error'); return; } U.sel = {}; U.fresh = null; Net.doDraw(r.g.v, me).then(ok => { if (!ok) playSound('error'); }); }
   function doNope() { const r = room(), me = myColor(r); if (!r || !r.g || !me || !M.canNope(r.g, me)) return; Net.doNope(r.g.v, me).then(ok => { if (!ok) playSound('error'); }); }
   function doPass() { const r = room(), me = myColor(r); if (!r || !r.g || !me || r.g.phase !== 'pending') return; const p = r.g.pending; U.passedKey = p.pid + ':' + p.n; $('nope-bar').classList.remove('can'); playSound('pass'); Net.doPass(me, p.pid, p.n); }
 
@@ -320,7 +326,7 @@
     };
   }
   // one row of example cards per rule (same order as rulesBody in i18n.js); 'back' = a face-down card
-  const RULE_DEMO = [['bomb'], ['back'], ['defuse'], ['nope'], ['attack'], ['skip', 'shuffle', 'future'], ['favor'], ['cat1', 'cat1', 'cat3', 'cat3', 'cat3']];
+  const RULE_DEMO = [['bomb'], ['back'], ['defuse'], ['nope'], ['attack'], ['skip', 'shuffle', 'future'], ['favor'], ['cat1', 'cat1', 'cat3', 'cat3', 'cat3'], ['bomb', 'defuse']];
   function openRules() {
     const body = I18N[LANG].rulesBody || I18N[DEFAULT_LANG].rulesBody;
     openModal('<h3>' + t('rulesTitle') + '</h3><ul class="rules-list">' + body.map((x, i) => '<li><div class="rule-txt">' + x + '</div><div class="rule-demo">' +
@@ -329,8 +335,8 @@
     $('modal').onclick = e => { if (e.target.closest('[data-act="close"]')) closeModal(); };
   }
   function openWin(r, me) {
-    const g = r.g, won = g.winner === me, host = Net.isHost(r);
-    openModal('<div class="win"><div class="win-av" style="--sc:var(--' + g.winner + ')">' + CatArt.avatarSVG(g.winner) + '</div><h2>' + t('winTitle', nm(r, g.winner)) + '</h2><p>' + (me ? (won ? t('youWon') : t('youLost')) : '') + '</p><p class="muted">' + t('winBody') + '</p>' +
+    const g = r.g, host = Net.isHost(r), team = !!g.winTeam, won = team ? !!me && g.teams[me] === g.winTeam : g.winner === me, ws = team ? winners(g) : [g.winner];
+    openModal('<div class="win"><div class="win-team">' + ws.map(c => '<div class="win-av" style="--sc:var(--' + c + ')">' + CatArt.avatarSVG(c) + '</div>').join('') + '</div><h2>' + (team ? t('winTeam', nm(r, ws[0]), nm(r, ws[1] || ws[0])) : t('winTitle', nm(r, g.winner))) + '</h2><p>' + (me ? (won ? t(team ? 'youWonTeam' : 'youWon') : t(team ? 'youLostTeam' : 'youLost')) : '') + '</p><p class="muted">' + t('winBody') + '</p>' +
       (host ? '<button type="button" class="btn btn-block" data-act="lobby">' + t('again') + '</button>' : '<p class="muted">' + t('waitHost') + '</p>') + '<button type="button" class="btn btn-secondary btn-block" data-act="leave">' + t('leave') + '</button></div>', 'win');
     $('modal').onclick = e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
@@ -358,15 +364,18 @@
   // ---------------------------------------------------------------------------------------------------------------
   // log
   function fmtLog(r, e, me) {
-    const n = e.by ? nm(r, e.by) : '', both = me && (me === e.by || me === e.from);
+    const n = e.by ? nm(r, e.by) : '';
     switch (e.k) {
       case 'play': return { x: playText(r, { by: e.by, kind: e.kind, kinds: e.kinds, target: e.target, name: e.name }), c: 'play' };
       case 'nope': return { x: t('log.nope', n, e.n), c: 'nope' };
       case 'cancel': return { x: t('log.cancel', n, e.kind === 'pair' || e.kind === 'triple' ? t('cards.' + e.kind) : cname(e.kind)), c: 'nope' };
       case 'attack': case 'skip': case 'shuffle': case 'future': case 'draw': case 'bomb': case 'defuse': case 'reinsert': case 'explode': case 'win': case 'fizzle': return { x: t('log.' + e.k, n), c: e.k === 'bomb' || e.k === 'explode' ? 'danger' : (e.k === 'defuse' || e.k === 'win' ? 'good' : '') };
       case 'favor': return { x: t('log.favor', n, nm(r, e.target)), c: '' };
-      case 'give': return { x: t('log.give', nm(r, e.from), n, null), c: '' };   // favor: never show which card was handed over
-      case 'steal': return { x: t('log.steal', n, nm(r, e.from), both ? cname(e.card) : null), c: 'play' };
+      case 'give': return { x: t('log.give', nm(r, e.from), n, null), c: '' };
+      case 'steal': return { x: t('log.steal', n, nm(r, e.from), null), c: 'play' };
+      case 'rescue': return { x: t('log.rescue', n, nm(r, e.mate)), c: 'danger' };
+      case 'rescued': return { x: t('log.rescued', n, nm(r, e.mate)), c: 'good' };
+      case 'rescueFail': return { x: t('log.rescueFail', n, nm(r, e.mate)), c: 'danger' };
       case 'miss': return { x: t('log.miss', n, nm(r, e.from), cname(e.name)), c: '' };
       case 'turn': return { x: t('log.turn', n, e.left), c: 'turn' };
     }
@@ -381,15 +390,17 @@
 
   // ---------------------------------------------------------------------------------------------------------------
   // effects for the events of the newest action
+  // where a card I just received will sit: the hidden `.new` card in my hand
+  const slot = me => $('hand').querySelector('.card.new') || $('hand');
   function anchor(c, me) { return c === me ? $('hand') : ($('opp-' + c) || $('hand')); }
   function processEvents(r, me) {
     const g = r.g;
     if (U.fxV == null) { U.fxV = g.v; if (g.v === 0) startDeal(r, me); return; }
     if (g.v <= U.fxV) return;
     U.fxV = g.v;
-    if (document.hidden) return;            // state is already rendered; don't queue effects nobody can see
-    const evs = g.ev.slice();
-    evs.forEach((e, i) => fxLater(i * 380, () => fxEvent(r, e, me)));
+    if (document.hidden) return;                       // background tab: browsers freeze animations, so skip the show entirely
+    U.fxTimers = U.fxTimers.filter(() => false);
+    g.ev.slice().forEach((e, i) => U.fxTimers.push(setTimeout(() => { if (!document.hidden) fxEvent(r, e, me); }, i * 380)));
   }
   function startDeal(r, me) {
     U.dealing = true; U.handSig = null; renderHand(r, me);
@@ -415,14 +426,20 @@
       case 'shuffle': playSound('shuffle'); { const d = $('deck-pile'); d.classList.remove('wiggle'); void d.offsetWidth; d.classList.add('wiggle'); } break;
       case 'future': playSound('future'); if (e.by === me && e.cards && e.cards.length) setTimeout(() => openPeek(e.cards), 250); break;
       case 'favor': playSound('favor'); break;
-      case 'give': playSound('cardGive'); FX.fly(anchor(e.from, me), anchor(e.by, me), backCard(), { w: 60, d: 420 });
+      case 'give': playSound('cardGive'); FX.fly(anchor(e.from, me), e.by === me ? slot(me) : anchor(e.by, me), backCard(), { w: 60, d: 420 });
         if (e.by === me) { setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350); } break;
-      case 'steal': playSound('steal'); FX.fly(anchor(e.from, me), anchor(e.by, me), backCard(), { w: 60, d: 420 });
+      case 'steal': playSound('steal'); FX.fly(anchor(e.from, me), e.by === me ? slot(me) : anchor(e.by, me), backCard(), { w: 60, d: 420 });
         if (e.by === me) setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350);
         else if (e.from === me) toast(t('stolen', cname(e.card), nm(r, e.by))); break;
       case 'miss': case 'fizzle': playSound('stealMiss'); break;
-      case 'draw': playSound('cardDraw'); FX.fly($('deck-pile'), anchor(e.by, me), backCard(), { w: 64, d: 400, to: e.by === me ? 1.1 : .6 }); break;
-      case 'bomb': playSound('bombDraw'); FX.banner(t('bombBanner', nm(r, e.by)), 'danger'); [250, 500, 750].forEach(ms => setTimeout(() => playSound('bombTick'), ms)); buzz([60, 40, 60]); break;
+      case 'draw': playSound('cardDraw');
+        if (e.by === me && e.card) FX.fly($('deck-pile'), slot(me), cardHTML(e.card), { w: $('deck-pile').querySelector('.pile-stack').offsetWidth, d: 600, to: 1 });   // the top card leaves the pile and lands in its slot
+        else FX.fly($('deck-pile'), anchor(e.by, me), backCard(), { w: 64, d: 400, to: .6 });
+        break;
+      case 'bomb': FX.pop(cardHTML('bomb', 'pop-card'), t('bombBanner', nm(r, e.by)), 'nope'); playSound('bombDraw'); FX.banner(t('bombBanner', nm(r, e.by)), 'danger'); [250, 500, 750].forEach(ms => setTimeout(() => playSound('bombTick'), ms)); buzz([60, 40, 60]); break;
+      case 'rescue': playSound('bombTick'); break;
+      case 'rescued': playSound('defuse'); FX.banner(t('rescuedBanner'), 'good'); buzz([40, 30, 40]); break;
+      case 'rescueFail': playSound('stealMiss'); break;
       case 'defuse': playSound('defuse'); FX.banner(t('defusedBanner'), 'good'); break;
       case 'reinsert': playSound('reinsert'); FX.fly(anchor(e.by, me), $('deck-pile'), backCard(), { w: 58, d: 380, fade: true }); break;
       case 'explode': playSound('explode'); setTimeout(() => playSound('eliminated'), 450); FX.boom($('opp-' + e.by) || $('me-chip')); FX.banner(t('boomBanner', nm(r, e.by)), 'danger'); buzz([120, 50, 240]); break;
@@ -456,6 +473,9 @@
       if (g.phase === 'play' && g.alive[g.turn] && Net.botControlled(r, g.turn)) later(rnd(1300, 2200), () => botTurn(g.turn, v));
       else if (g.phase === 'give' && Net.botControlled(r, g.give.from)) later(rnd(1000, 1700), () => { const rr = room(); if (rr && rr.g && rr.g.v === v) Net.doGive(v, g.give.from, M.botGive(rr.g, g.give.from)); });
       else if (g.phase === 'reinsert' && Net.botControlled(r, g.reins.by)) later(rnd(1300, 2000), () => { const rr = room(); if (rr && rr.g && rr.g.v === v) Net.doReinsert(v, g.reins.by, M.botReinsert(rr.g, g.reins.by, lvl(g.reins.by))); });
+      else if (g.phase === 'rescue' && g.rescue) {            // safety net: if nobody reports a result, the driver fails the minigame
+        const rs = g.rescue; later((Coop.limit(rs.game) + 16) * 1000, () => Net.doRescueEnd(rs.id, false));
+      }
       else if (g.phase === 'pending') {
         const p = g.pending, ms = r.settings.nopeSec * 1000;
         M.aliveList(g).forEach(c => {
@@ -479,18 +499,40 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 2v2 cooperative defuse: open the minigame overlay once the bomb banner has played, close it when the phase moves on
+  function syncCoop(r, me) {
+    const g = r.g;
+    if (g.phase === 'rescue' && g.rescue) {
+      if (U.coopId !== g.rescue.id) { U.coopId = g.rescue.id; clearTimeout(U.coopTimer); U.coopTimer = setTimeout(() => openCoop(room()), 1500); }
+    } else if (U.coopId != null) { U.coopId = null; clearTimeout(U.coopTimer); Coop.close(); }
+  }
+  function openCoop(r) {
+    if (!r || !r.g || r.g.phase !== 'rescue' || !r.g.rescue || U.coopId !== r.g.rescue.id) return;
+    const rs = r.g.rescue, me = myColor(r), roles = { p1: rs.p1, p2: rs.p2 }, driver = Net.isDriver(r);
+    const human = [rs.by, rs.mate].filter(c => !Net.botControlled(r, c)), auth = human[0] || null, sim = {};
+    ['p1', 'p2'].forEach(k => { if (Net.botControlled(r, roles[k]) && driver) sim[k] = Net.botLevel(r.seats[roles[k]]); });   // the driver plays the bot teammate
+    closeModal(); U.sel = {};
+    Coop.open({ rid: rs.id, kind: rs.game, seed: rs.seed, roles, me, sim, isAuth: auth ? auth === me : driver, t, avatar: c => CatArt.avatarSVG(c),
+      names: { p1: nm(r, roles.p1), p2: nm(r, roles.p2) }, sound: playSound, buzz,
+      send: (color, data) => Net.rtSend(rs.id, color, data), listen: cb => Net.rtListen(rs.id, cb),
+      onEnd: ok => { const rr = room(); if (rr && rr.g && rr.g.phase === 'rescue') Net.doRescueEnd(rs.id, ok).then(() => setTimeout(() => Net.rtClear(rs.id), 2500)); } });
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // main render + room events
   function renderGame(r, prev) {
     const g = r.g, me = myColor(r);
     $('game-room-code-label').textContent = Net.S.mode === 'local' ? t('offlineRoom') : Net.S.code;
     const sp = $('spectator-badge'); sp.textContent = t('spectating'); sp.style.display = me ? 'none' : '';
+    trackFresh(r, me);
     renderOpps(r, me); renderPiles(r, me); renderBanner(r, me); renderBar(r, me); renderHand(r, me); renderLog(r, me); updateActions(r, me);
-    processEvents(r, me); syncModals(r, me); schedule(r, me);
+    processEvents(r, me); syncModals(r, me); syncCoop(r, me); schedule(r, me);
     if (g.phase === 'over' && U.winV !== g.v) { U.winV = g.v; setTimeout(() => { const rr = room(); if (rr && rr.status === 'ended') openWin(rr, myColor(rr)); }, 2300); }
   }
   function resetGameUI() {
-    clearTimers(); clearTicks(); cancelFx(); clearTimeout(U.reTimer); clearTimeout(U.giveTimer); U.reTimer = U.giveTimer = null;
-    Object.assign(U, { sel: {}, driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null, fxV: null, handSig: null, prevHand: null, dealing: false, winV: null, chips: {} });
+    clearTimeout(U.coopTimer); U.coopId = null; Coop.close();
+    clearTimers(); clearTicks(); U.fxTimers.forEach(clearTimeout); U.fxTimers = []; clearTimeout(U.reTimer); clearTimeout(U.giveTimer); U.reTimer = U.giveTimer = null;
+    Object.assign(U, { sel: {}, fresh: null, freshWhy: null, freshV: null, driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null, fxV: null, handSig: null, prevHand: null, dealing: false, winV: null, chips: {} });
     ['opps', 'fx', 'stage', 'hand'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
     $('log-panel').dataset.sig = ''; $('nope-bar').classList.remove('show');
   }
@@ -565,7 +607,7 @@
     });
     $('rules-list').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; playSound('uiClick'); const r = room(); if (!r) return;
-      if (b.dataset.act === 'set') Net.setSetting(b.dataset.key, b.dataset.val === 'true' ? true : (b.dataset.val === 'false' ? false : +b.dataset.val));
+      if (b.dataset.act === 'set') { const v = b.dataset.val; Net.setSetting(b.dataset.key, v === 'true' ? true : (v === 'false' ? false : (isNaN(+v) ? v : +v))); }
       if (b.dataset.act === 'step') Net.setSetting(b.dataset.key, r.settings[b.dataset.key] + (+b.dataset.d));
     });
     $('hand').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) onCardClick(c.dataset.kind, +c.dataset.i || 0, false); });
@@ -580,10 +622,13 @@
       const k = e.key.toLowerCase(), r = room(); if (!r || !r.g) return;
       if (k === 'd') doDraw(); else if (k === 'enter') playSelected(); else if (k === 'n') doNope(); else if (k === 'p') doPass(); else if (k === 'escape') { U.sel = {}; U.handSig = null; renderHand(r, myColor(r)); updateActions(r, myColor(r)); }
     });
+    // coming back from another tab: drop every half-played effect and redraw the table from the real state
     document.addEventListener('visibilitychange', () => {
-      cancelFx();                              // hiding or returning: wipe leftover effects, never replay them
-      if (document.hidden || U.screen !== 'game') return;
-      const r = room(); if (r && r.g && r.status !== 'lobby') { U.handSig = null; renderGame(r, r); }   // repaint the true current state
+      U.fxTimers.forEach(clearTimeout); U.fxTimers = []; FX.clear();
+      if (document.hidden) return;
+      const r = room(); if (U.screen !== 'game' || !r || !r.g) return;
+      U.fxV = r.g.v; U.dealing = false; U.handSig = null; U.barKey = null; U.chips = {}; $('opps').innerHTML = '';
+      renderGame(r, null);
     });
     let rz; window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(layoutHand); });
   }

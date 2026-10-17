@@ -33,9 +33,12 @@ const I18N = {
     set: {
       nopeSec: 'Thời gian được “Từ Chối”', nopeHint: 'Sau khi ai đó đánh bài, mọi người có chừng này giây để chặn.', secs: n => `${n} giây`,
       hand: 'Số bài ban đầu', handHint: 'Chưa tính 1 lá Gỡ Bom luôn có sẵn.',
-      combos: 'Đánh đôi / ba lá mèo', combosHint: 'Đôi: cướp ngẫu nhiên 1 lá. Ba: gọi tên 1 lá để đòi.', on: 'Bật', off: 'Tắt'
+      combos: 'Đánh đôi / ba lá mèo', combosHint: 'Đôi: cướp ngẫu nhiên 1 lá. Ba: gọi tên 1 lá để đòi.', on: 'Bật', off: 'Tắt',
+      mode: 'Chế độ chơi', modeHint: 'Solo: mỗi người một mình. 2v2: đúng 4 người/bot, hai đội, đồng đội ngồi đối diện.', solo: 'Solo', team: '2v2',
+      coop: 'Gỡ bom đôi', coopHint: 'Khi bốc trúng bom, đồng đội cùng chơi minigame để gỡ. Thua thì người bốc nổ.', coopNoDefuse: 'Khi hết Gỡ Bom', coopAlways: 'Mọi quả bom'
     },
     botNames: { coral: 'Bí Ngô', mint: 'Bạc Hà', sky: 'Mây', violet: 'Khoai Môn', pink: 'Kẹo Bông' },
+    drawn: c => `Bạn bốc được: ${c}`, drewHint: c => `Bạn bốc được lá ${c}`,
     turnHint: 'Đánh bài hoặc bốc bài để kết thúc lượt.', waitingOn: n => `Chờ ${n}…`, youOut: 'Bạn đã nổ — ngồi xem tiếp nhé.',
     knownTop: 'Bạn đã biết', online: 'Online', pending: n => `${n} vừa đánh bài`, noTarget: 'Không ai có bài để nhắm tới.',
     lobbyResume: 'Có ván đang chơi dở', resumeBody: c => `Phòng ${c} — quay lại?`, resume: 'Quay lại', joinSeat: 'Ngồi vào',
@@ -56,6 +59,9 @@ const I18N = {
     posLabel: (i, n) => i === 0 ? 'Lá tiếp theo bị bốc sẽ là bom!' : (i >= n ? 'Dưới đáy chồng' : `Sau ${i} lá an toàn`),
     bombBanner: n => `${n} bốc trúng MÈO NỔ!`, defusedBanner: 'Gỡ bom thành công!', boomBanner: n => `${n} nổ tung!`,
     got: c => `Nhận được: ${c}`, stolen: (c, n) => `${n} lấy mất ${c} của bạn`,
+    needFour: 'Chế độ 2v2 cần đúng 4 người/bot.', teamNames: { A: 'Thuyền 1', B: 'Thuyền 2' },
+    rescueBanner: (a, b) => `${a} & ${b} cùng gỡ bom!`, rescueHint: 'Cùng một thuyền — hai bạn gỡ bom nhé!', rescuedBanner: 'Cả thuyền thoát nạn!',
+    winTeam: (a, b) => `${a} & ${b} thắng!`, youWonTeam: 'Thuyền của cậu sống sót! 🏆', youLostTeam: 'Thuyền của cậu đã chìm…',
     winTitle: n => `${n} thắng!`, youWon: 'Cậu là mèo sống sót cuối cùng! 🏆', youLost: 'Ván này cậu không sống sót…', winBody: 'Chơi lại không?',
     again: 'Về phòng chờ', close: 'Đóng', ok: 'OK',
     rulesTitle: 'Luật chơi Mèo Nổ',
@@ -67,7 +73,8 @@ const I18N = {
       '<b>Tấn Công:</b> bạn không bốc, người kế tiếp phải đi 2 lượt (cộng dồn nếu họ lại Tấn Công).',
       '<b>Né:</b> kết thúc 1 lượt mà không bốc. <b>Xào Bài:</b> xào chồng bốc. <b>Nhìn Trước:</b> xem bí mật 3 lá trên cùng.',
       '<b>Xin Xỏ:</b> chọn 1 người, họ tự chọn 1 lá tặng bạn.',
-      '<b>Lá mèo:</b> vô dụng một mình. <b>Đôi</b> giống nhau → cướp ngẫu nhiên 1 lá của người khác. <b>Bộ ba</b> giống nhau → gọi tên 1 lá, họ có thì phải đưa.'
+      '<b>Lá mèo:</b> vô dụng một mình. <b>Đôi</b> giống nhau → cướp ngẫu nhiên 1 lá của người khác. <b>Bộ ba</b> giống nhau → gọi tên 1 lá, họ có thì phải đưa.',
+      '<b>Chế độ 2v2:</b> hai đội, đồng đội ngồi đối diện. Bốc trúng bom thì <b>cả hai cùng chơi minigame</b> để gỡ (người khác xem). Thua thì người bốc nổ. Đội nào còn người sống cuối cùng thì thắng.'
     ],
     // ---- cards
     cards: {
@@ -87,6 +94,24 @@ const I18N = {
       pair: 'đôi', triple: 'bộ ba'
     },
     // ---- log. Each receives player NAMES (already resolved) plus card names.
+    coop: {
+      title: 'Gỡ Bom Đôi', watching: 'Đang xem hai bạn gỡ bom', win: 'Gỡ xong!', lose: 'BÙM!', timeUp: 'Hết giờ!',
+      chatTitle: 'Nói nhanh', chat: ['✋ Dừng lại!', '👉 Đi đi!', '⏳ Chờ tớ!', '😱 Ối!'],
+      games: {
+        zigzag: { n: 'Lái Chung', d: 'Một quả bom, hai người lái: một người lên/xuống, một người trái/phải. Đưa nó tới đích, chạm tường là bị ném về góc!' },
+        wires: { n: 'Cắt Dây', d: 'Một người thấy dây, một người cầm sổ tay. Cắt đúng thứ tự, cắt nhầm 3 lần là nổ!' },
+        lock: { n: 'Khóa Hai Chìa', d: 'Mã của khóa cậu nằm trên máy bạn cậu, và ngược lại. Đọc cho nhau nghe!' }
+      },
+      zz: { roleV: 'Cậu lái LÊN / XUỐNG. Bạn cậu lái TRÁI / PHẢI.', roleH: 'Cậu lái TRÁI / PHẢI. Bạn cậu lái LÊN / XUỐNG.', watch: 'Mỗi người chỉ lái một trục.', up: 'Lên', down: 'Xuống', left: 'Trái', right: 'Phải',
+        tip: 'Đợi bạn tới góc rồi mới rẽ. Phím mũi tên hoặc WASD cũng được.' },
+      wires: { roleWires: 'Cậu thấy dây nhưng KHÔNG có sổ tay. Hỏi bạn cậu đi!', roleManual: 'Cậu có sổ tay nhưng KHÔNG thấy dây. Chạm 📣 để đọc cho bạn!', watch: 'Một người thấy dây, một người cầm sổ tay.',
+        manual: 'Sổ tay gỡ bom', step: n => `Bước ${n}`, tell: 'Nói cho bạn nghe', strikes: 'Cắt nhầm', toldTitle: 'Bạn cậu vừa nói', 
+        colors: { red: 'ĐỎ', blue: 'XANH DƯƠNG', green: 'XANH LÁ', yellow: 'VÀNG', white: 'TRẮNG', violet: 'TÍM' },
+        shapes: ['tam giác', 'hình tròn', 'hình vuông', 'hình thoi', 'ngôi sao', 'dấu cộng'],
+        clue: { color: c => `Dây màu ${c}`, shape: s => `Dây có thẻ ${s}`, pos: n => `Dây thứ ${n} từ trên xuống` } },
+      lock: { role: 'Cậu đọc mã trên màn hình cho bạn, còn mã của cậu nằm trên máy bạn ấy.', watch: 'Mỗi người đặt một khóa, mã nằm ở máy người kia.', code: n => `Mã của ${n}`, codeHint: 'Chạm vào hình để “nói” cho bạn ấy',
+        dial: n => `Khóa của ${n}`, dialHint: 'Chạm để đổi hình', saySlot: n => `Ô ${n}:`, sym: ['Tam giác cam', 'Tròn xanh', 'Vuông ngọc', 'Thoi vàng', 'Sao hồng', 'Cộng tím'] }
+    },
     log: {
       play1: (n, c) => `${n} đánh ${c}`,
       playFavor: (n, c, tg) => `${n} đánh ${c} lên ${tg}`,
@@ -101,6 +126,7 @@ const I18N = {
       miss: (n, from, c) => `${n} đòi ${c} nhưng ${from} không có`, fizzle: n => `Lá của ${n} không có tác dụng`,
       draw: n => `${n} bốc một lá`, bomb: n => `${n} bốc trúng MÈO NỔ! 💣`, defuse: n => `${n} dùng Gỡ Bom! ✂️`,
       reinsert: n => `${n} nhét Mèo Nổ vào lại chồng bốc (bí mật)`, explode: n => `${n} nổ tung! 💥`,
+      rescue: (a, b) => `${a} bốc trúng bom — ${b} cùng gỡ! 🤝`, rescued: (a, b) => `${a} & ${b} gỡ bom thành công! ✂️`, rescueFail: (a, b) => `${a} & ${b} gỡ thất bại…`,
       win: n => `${n} là mèo sống sót cuối cùng! 🏆`, turn: (n, left) => left > 1 ? `Lượt của ${n} (${left} lượt)` : `Lượt của ${n}`
     }
   },
@@ -132,9 +158,12 @@ const I18N = {
     set: {
       nopeSec: '“Nope” window', nopeHint: 'After a card is played, everyone has this long to cancel it.', secs: n => `${n} s`,
       hand: 'Starting hand', handHint: 'Not counting the Defuse everyone always gets.',
-      combos: 'Cat pairs / triples', combosHint: 'Pair: steal a random card. Triple: name a card and take it.', on: 'On', off: 'Off'
+      combos: 'Cat pairs / triples', combosHint: 'Pair: steal a random card. Triple: name a card and take it.', on: 'On', off: 'Off',
+      mode: 'Game mode', modeHint: 'Solo: every cat for themselves. 2v2: exactly 4 players/bots, two teams, teammates sit opposite.', solo: 'Solo', team: '2v2',
+      coop: 'Team defuse', coopHint: 'When a bomb is drawn, the teammates play a minigame together to defuse it. Fail and the drawer explodes.', coopNoDefuse: 'No Defuse in hand', coopAlways: 'Every bomb'
     },
     botNames: { coral: 'Pumpkin', mint: 'Minty', sky: 'Cloudy', violet: 'Taro', pink: 'Candy' },
+    drawn: c => `You drew: ${c}`, drewHint: c => `You drew ${c}`,
     turnHint: 'Play cards, or draw to end your turn.', waitingOn: n => `Waiting for ${n}…`, youOut: 'You exploded — enjoy the show.',
     knownTop: 'You know', online: 'Online', pending: n => `${n} just played a card`, noTarget: 'Nobody has cards to target.',
     lobbyResume: 'Game in progress', resumeBody: c => `Room ${c} — rejoin?`, resume: 'Rejoin', joinSeat: 'Take a seat',
@@ -154,6 +183,9 @@ const I18N = {
     posLabel: (i, n) => i === 0 ? 'The very next draw explodes!' : (i >= n ? 'At the very bottom' : `After ${i} safe card${i > 1 ? 's' : ''}`),
     bombBanner: n => `${n} drew an EXPLODING CAT!`, defusedBanner: 'Defused!', boomBanner: n => `${n} exploded!`,
     got: c => `You got: ${c}`, stolen: (c, n) => `${n} took your ${c}`,
+    needFour: '2v2 needs exactly 4 players/bots.', teamNames: { A: 'Boat 1', B: 'Boat 2' },
+    rescueBanner: (a, b) => `${a} & ${b} defuse together!`, rescueHint: 'Same boat — defuse it together!', rescuedBanner: 'The whole boat is saved!',
+    winTeam: (a, b) => `${a} & ${b} win!`, youWonTeam: 'Your boat survived! 🏆', youLostTeam: 'Your boat sank…',
     winTitle: n => `${n} wins!`, youWon: 'You are the last cat standing! 🏆', youLost: 'You did not survive this one…', winBody: 'Play again?',
     again: 'Back to lobby', close: 'Close', ok: 'OK',
     rulesTitle: 'How to play',
@@ -165,7 +197,8 @@ const I18N = {
       '<b>Attack:</b> you do not draw; the next player takes 2 turns (stacks if they Attack back).',
       '<b>Skip:</b> end a turn without drawing. <b>Shuffle:</b> shuffle the pile. <b>See the Future:</b> peek at the top 3.',
       '<b>Favor:</b> pick a player; they choose a card to give you.',
-      '<b>Cat cards:</b> useless alone. A <b>pair</b> of the same cat steals a random card. A <b>triple</b> lets you name a card — if they have it, it is yours.'
+      '<b>Cat cards:</b> useless alone. A <b>pair</b> of the same cat steals a random card. A <b>triple</b> lets you name a card — if they have it, it is yours.',
+      '<b>2v2 mode:</b> two teams, teammates sit opposite. Draw a bomb and <b>both teammates play a minigame</b> to defuse it (everyone else watches). Fail and the drawer explodes. The last team with a cat alive wins.'
     ],
     cards: {
       bomb: { n: 'Exploding Cat', d: 'Draw it and explode — unless you have a Defuse.' },
@@ -183,6 +216,24 @@ const I18N = {
       cat5: { n: 'Calico', d: 'Play 2 alike to steal, 3 alike to demand.' },
       pair: 'pair', triple: 'triple'
     },
+    coop: {
+      title: 'Team Defuse', watching: 'Watching the two of them defuse', win: 'Defused!', lose: 'BOOM!', timeUp: 'Time is up!',
+      chatTitle: 'Quick say', chat: ['✋ Stop!', '👉 Go!', '⏳ Wait for me!', '😱 Oops!'],
+      games: {
+        zigzag: { n: 'Co-Pilot', d: 'One bomb, two drivers: one steers up/down, the other left/right. Reach the goal — touch a wall and you are thrown back to the last corner!' },
+        wires: { n: 'Wire Cutters', d: 'One of you sees the wires, the other holds the manual. Cut in the right order — three wrong cuts and it blows!' },
+        lock: { n: 'Two-Key Lock', d: 'The code for your lock is on your teammate’s screen, and vice versa. Read it out to each other!' }
+      },
+      zz: { roleV: 'You steer UP / DOWN. Your teammate steers LEFT / RIGHT.', roleH: 'You steer LEFT / RIGHT. Your teammate steers UP / DOWN.', watch: 'Each player only steers one axis.', up: 'Up', down: 'Down', left: 'Left', right: 'Right',
+        tip: 'Wait for your teammate to reach the corner before you turn. Arrow keys or WASD work too.' },
+      wires: { roleWires: 'You see the wires but have NO manual. Ask your teammate!', roleManual: 'You have the manual but CANNOT see the wires. Tap 📣 to read a step out!', watch: 'One sees the wires, the other holds the manual.',
+        manual: 'Defuse manual', step: n => `Step ${n}`, tell: 'Tell your teammate', strikes: 'Wrong cuts', toldTitle: 'Your teammate just said',
+        colors: { red: 'RED', blue: 'BLUE', green: 'GREEN', yellow: 'YELLOW', white: 'WHITE', violet: 'VIOLET' },
+        shapes: ['triangle', 'circle', 'square', 'diamond', 'star', 'plus'],
+        clue: { color: c => `The ${c} wire`, shape: s => `The wire with the ${s} tag`, pos: n => `Wire number ${n} from the top` } },
+      lock: { role: 'You read the code on your screen to your teammate; your own code is on theirs.', watch: 'Each player sets one lock; the code is on the other player’s screen.', code: n => `${n}’s code`, codeHint: 'Tap a symbol to “say” it to them',
+        dial: n => `${n}’s lock`, dialHint: 'Tap to change the symbol', saySlot: n => `Slot ${n}:`, sym: ['Orange triangle', 'Blue circle', 'Mint square', 'Yellow diamond', 'Pink star', 'Violet plus'] }
+    },
     log: {
       play1: (n, c) => `${n} plays ${c}`,
       playFavor: (n, c, tg) => `${n} plays ${c} on ${tg}`,
@@ -197,6 +248,7 @@ const I18N = {
       miss: (n, from, c) => `${n} demands ${c} but ${from} has none`, fizzle: n => `${n}'s card fizzles`,
       draw: n => `${n} draws a card`, bomb: n => `${n} drew an EXPLODING CAT! 💣`, defuse: n => `${n} uses a Defuse! ✂️`,
       reinsert: n => `${n} slides the bomb back in (secret)`, explode: n => `${n} exploded! 💥`,
+      rescue: (a, b) => `${a} drew a bomb — ${b} helps! 🤝`, rescued: (a, b) => `${a} & ${b} defused it! ✂️`, rescueFail: (a, b) => `${a} & ${b} failed to defuse…`,
       win: n => `${n} is the last cat standing! 🏆`, turn: (n, left) => left > 1 ? `${n}'s turn (${left} turns)` : `${n}'s turn`
     }
   }

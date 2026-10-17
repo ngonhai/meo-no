@@ -146,7 +146,7 @@ const CatArt = (function () {
   const ART_IMAGES = {};
   const has = k => !!art[k];
   const artSVG = k => ART_IMAGES[k] ? '<img class="c-art c-img" src="' + ART_IMAGES[k] + '" alt="" draggable="false">' :
-    '<svg class="c-art" viewBox="0 0 120 120" aria-hidden="true"><use href="#art-' + k + '"/></svg>';
+    '<svg class="c-art" viewBox="0 0 120 120" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#art-' + k + '"/></svg>';
   const iconHTML = (k, cls) => ART_IMAGES[k] ? '<img class="' + cls + '" src="' + ART_IMAGES[k] + '" alt="" draggable="false">' :
     '<svg class="' + cls + '" viewBox="0 0 120 120" aria-hidden="true"><use href="#art-' + k + '"/></svg>';
   const avatarSVG = (c, cls) => '<svg class="' + (cls || 'av') + '" viewBox="0 0 120 120" aria-hidden="true"><use href="#av-' + c + '"/></svg>';

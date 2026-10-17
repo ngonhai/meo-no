@@ -18,6 +18,7 @@ const SOUND_FILES = {
   bombDraw: 'sounds/bomb-draw.mp3',    bombTick: 'sounds/bomb-tick.wav',     defuse: 'sounds/defuse.mp3',
   reinsert: 'sounds/reinsert.mp3',     explode: 'sounds/explode.mp3',        eliminated: 'sounds/eliminated.mp3',
   yourTurn: 'sounds/your-turn.mp3',    endTurn: 'sounds/end-turn.mp3',       timerTick: 'sounds/timer-tick.wav',
+  rescueGo: 'sounds/rescue-go.mp3', snip: 'sounds/snip.wav', zap: 'sounds/zap.wav', bonk: 'sounds/bonk.wav', sayPing: 'sounds/say-ping.wav', rescueWin: 'sounds/rescue-win.mp3', rescueFail: 'sounds/rescue-fail.mp3',
   gameStart: 'sounds/game-start.mp3',  win: 'sounds/win.mp3',                lose: 'sounds/lose.mp3',
   join: 'sounds/join.wav',             leave: 'sounds/leave.wav',            error: 'sounds/error.wav',   notify: 'sounds/notify.wav',
   meow1: 'sounds/meow-1.mp3', meow2: 'sounds/meow-2.mp3', meow3: 'sounds/meow-3.mp3', meow4: 'sounds/meow-4.mp3', meow5: 'sounds/meow-5.mp3'
@@ -53,6 +54,13 @@ const SYNTH = {
   yourTurn: [{ f: 660, d: .1, t: 'triangle', v: .5 }, { f: 880, d: .16, t: 'triangle', v: .5, at: .1 }],
   endTurn: [{ f: 440, f2: 330, d: .08, t: 'triangle', v: .3 }],
   timerTick: [{ f: 1000, d: .025, t: 'square', v: .3 }],
+  rescueGo: [{ f: 520, d: .08, t: 'square', v: .35 }, { f: 780, d: .14, t: 'square', v: .35, at: .09 }],
+  snip: [{ n: 1, d: .04, v: .5, lp: 6000 }, { f: 1400, f2: 700, d: .06, t: 'square', v: .3 }],
+  zap: [{ f: 160, f2: 60, d: .3, t: 'sawtooth', v: .5 }, { n: 1, d: .2, v: .5, lp: 3000 }],
+  bonk: [{ f: 220, f2: 80, d: .16, t: 'triangle', v: .6 }],
+  sayPing: [{ f: 880, d: .06, t: 'sine', v: .3 }, { f: 1175, d: .08, t: 'sine', v: .3, at: .06 }],
+  rescueWin: [523, 659, 784, 1047].map((f, i) => ({ f, d: .12, t: 'triangle', v: .5, at: i * .09 })),
+  rescueFail: [{ f: 330, f2: 120, d: .5, t: 'sawtooth', v: .5 }],
   gameStart: [{ f: 392, d: .12, t: 'triangle', v: .5 }, { f: 523, d: .12, t: 'triangle', v: .5, at: .12 }, { f: 659, d: .12, t: 'triangle', v: .5, at: .24 }, { f: 784, d: .3, t: 'triangle', v: .5, at: .36 }],
   win: [523, 659, 784, 1047, 784, 1047].map((f, i) => ({ f, d: .16, t: 'triangle', v: .5, at: i * .13 })),
   lose: [{ f: 392, d: .2, t: 'triangle', v: .45 }, { f: 330, d: .2, t: 'triangle', v: .45, at: .2 }, { f: 262, d: .5, t: 'triangle', v: .45, at: .4 }],
@@ -67,16 +75,14 @@ const SYNTH = {
   meow5: [{ f: 640, f2: 840, d: .08, t: 'square', v: .18 }, { f: 840, f2: 540, d: .2, t: 'triangle', v: .38, at: .08 }]
 };
 
-const _sounds = {}, _missing = {}, _last = {};
-for (const key in SOUND_FILES) {
-  try {
-    const a = new Audio(SOUND_FILES[key]);
-    a.preload = 'auto';
-    a.addEventListener('error', () => { _missing[key] = true; });
-    _sounds[key] = a;
-  } catch (e) { _missing[key] = true; }
-}
-
+// ---- loading: ONE check for every file when the page opens ---------------------------------------------------------
+// Before, each new Audio() was created up front but nobody knew if a file really existed until the first play, and every play
+// cloned the element (a fresh network/decoder round-trip) -> the hitch on the first Nope / bomb / click.
+// Now every file is fetched + decoded ONCE at start-up into an AudioBuffer (state 'ok'), or marked 'missing' (404, or a dev
+// server answering with an HTML page). Playing an 'ok' sound is just "start a buffer": no network, no decoding, no clone.
+// 'missing' and still-'loading' keys use the synth placeholder. If fetch() is unavailable (e.g. page opened as file://) a key
+// falls back to a plain <audio> element ('tag').
+const _last = {}, _state = {}, _buf = {}, _tags = {};
 let soundEnabled = (function () { try { return localStorage.getItem('meow_sound') !== 'off'; } catch (e) { return true; } })();
 function setSoundEnabled(on) { soundEnabled = on; try { localStorage.setItem('meow_sound', on ? 'on' : 'off'); } catch (e) {} }
 
@@ -86,6 +92,31 @@ function _audioCtx() {
   try { const C = window.AudioContext || window.webkitAudioContext; if (C) _ctx = new C(); } catch (e) {}
   return _ctx;
 }
+function _useTag(key) {
+  try {
+    const a = new Audio(); a.preload = 'auto';
+    a.addEventListener('error', () => { _state[key] = 'missing'; }); a.addEventListener('canplaythrough', () => { if (_state[key] !== 'missing') _state[key] = 'tag'; }, { once: true });
+    a.src = SOUND_FILES[key]; _tags[key] = a; _state[key] = 'loading';
+  } catch (e) { _state[key] = 'missing'; }
+}
+function probeSounds() {
+  const ctx = _audioCtx();
+  Object.keys(SOUND_FILES).forEach(key => {
+    _state[key] = 'loading';
+    if (!ctx || typeof fetch !== 'function') { _useTag(key); return; }
+    fetch(SOUND_FILES[key]).then(res => {
+      const type = (res.headers.get('content-type') || '').toLowerCase();
+      if (!res.ok || type.indexOf('text/html') >= 0) throw 'missing';
+      return res.arrayBuffer();
+    }).then(ab => new Promise((ok, bad) => { const p = ctx.decodeAudioData(ab, ok, bad); if (p && p.catch) p.catch(bad); }))
+      .then(buf => { _buf[key] = buf; _state[key] = 'ok'; })
+      .catch(err => { if (err === 'missing' || (err && err.name === 'EncodingError') || (err && err.name === 'DataCloneError') || !(err instanceof TypeError)) _state[key] = 'missing'; else _useTag(key); });
+  });
+  // browsers keep an AudioContext suspended until the first tap / key press
+  const wake = () => { if (_ctx && _ctx.state === 'suspended') _ctx.resume().catch(() => {}); };
+  ['pointerdown', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, wake, { passive: true }));
+}
+
 function _synth(key, vol) {
   const rec = SYNTH[key], ctx = _audioCtx(); if (!rec || !ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -100,20 +131,24 @@ function _synth(key, vol) {
     g.connect(ctx.destination); src.start(at); src.stop(at + n.d + 0.02);
   });
 }
+function _playBuffer(key, vol) {
+  const ctx = _audioCtx(); if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  const src = ctx.createBufferSource(), g = ctx.createGain(); src.buffer = _buf[key]; g.gain.value = vol; src.connect(g); g.connect(ctx.destination); src.start();
+}
 
 function playSound(key) {
-  if (!soundEnabled) return;
+  if (!soundEnabled || (typeof document !== 'undefined' && document.hidden)) return;
   const now = Date.now(); if (now - (_last[key] || 0) < 35) return; _last[key] = now;
-  const vol = SOUND_VOLUME[key] != null ? SOUND_VOLUME[key] : 0.8;
-  const a = _sounds[key];
-  if (a && !_missing[key]) {
-    try {
-      const inst = a.cloneNode(); inst.volume = vol;
-      const pr = inst.play();
-      if (pr && pr.catch) pr.catch(err => { if (err && err.name === 'NotSupportedError') { _missing[key] = true; _synth(key, vol); } });
-      return;
-    } catch (e) { _missing[key] = true; }
-  }
-  _synth(key, vol);
+  const vol = SOUND_VOLUME[key] != null ? SOUND_VOLUME[key] : 0.8, st = _state[key];
+  try {
+    if (st === 'ok') return _playBuffer(key, vol);
+    if (st === 'tag') {
+      const a = _tags[key], inst = a.paused ? a : a.cloneNode(); inst.volume = vol; if (inst === a) a.currentTime = 0;
+      const pr = inst.play(); if (pr && pr.catch) pr.catch(() => {}); return;
+    }
+  } catch (e) {}
+  _synth(key, vol);                                   // 'missing' or not decoded yet
 }
+probeSounds();
 const playMeow = kind => playSound({ cat1: 'meow1', cat2: 'meow2', cat3: 'meow3', cat4: 'meow4', cat5: 'meow5' }[kind] || 'cardPlay');

@@ -173,6 +173,7 @@ const Net = (function () {
       if (r.status !== 'lobby') return undefined;
       const colors = Object.keys(r.seats).filter(c => r.seats[c]);
       if (colors.length < 2) return undefined;
+      if (r.settings.mode === 'team' && colors.length !== 4) return undefined;     // 2v2 needs exactly 4 seats (humans and/or bots)
       r.g = M.newGame(r.settings, colors, colors[Math.floor(Math.random() * colors.length)]);
       r.status = 'playing'; return r;
     });
@@ -195,13 +196,46 @@ const Net = (function () {
   const doNope = (v, color) => act(v, g => M.nope(g, color));
   const doGive = (v, color, kind) => act(v, g => M.giveCard(g, color, kind));
   const doReinsert = (v, color, pos) => act(v, g => M.reinsert(g, color, pos));
+  const doRescueEnd = (rid, ok) => act(null, g => M.rescueEnd(g, rid, ok));      // 2v2 minigame result (first report wins, repeats are ignored)
   const doPass = (color, pid, n) => act(null, g => M.pass(g, color, pid, n));
   const doResolve = (pid, n) => act(null, g => M.resolve(g, pid, n));
+
+  // ---- realtime channel for the 2v2 minigames -------------------------------------------------------------------
+  // Dot positions / dial settings change many times a second, far too often for room transactions (and every room
+  // change re-renders the table), so they live in a SEPARATE path: rooms/meow_<CODE>_rt/<rescueId>/<color>.
+  // Each player only ever writes their OWN <color> node (single writer = no conflicts); everyone reads the whole
+  // rescue node. Local (offline) mode keeps the same API in memory. The path matches the existing rooms/$roomId rule.
+  const RT = { local: {}, subs: {} };
+  const rtRef = rid => db.ref('rooms/' + keyOf(S.code) + '_rt/' + rid);
+  function rtSend(rid, color, data) {
+    try {
+      if (S.mode === 'local') {
+        RT.local[rid] = RT.local[rid] || {}; RT.local[rid][color] = JSON.parse(JSON.stringify(data));
+        const snap = JSON.parse(JSON.stringify(RT.local[rid])); (RT.subs[rid] || []).slice().forEach(f => f(snap));
+      } else if (S.mode === 'online' && S.ref) {
+        const p = rtRef(rid).child(color).set(data); if (p && p.catch) p.catch(() => {});
+      }
+    } catch (e) {}
+  }
+  function rtListen(rid, cb) {                      // cb(allNodes) fires on every change (and once with what is already there)
+    if (S.mode === 'local') {
+      (RT.subs[rid] = RT.subs[rid] || []).push(cb);
+      if (RT.local[rid]) cb(JSON.parse(JSON.stringify(RT.local[rid])));
+      return () => { RT.subs[rid] = (RT.subs[rid] || []).filter(f => f !== cb); };
+    }
+    if (S.mode !== 'online' || !S.ref) return () => {};
+    const ref = rtRef(rid), h = ref.on('value', snap => cb(snap.val() || {}));
+    return () => { try { ref.off('value', h); } catch (e) {} };
+  }
+  function rtClear(rid) {
+    if (S.mode === 'local') { delete RT.local[rid]; delete RT.subs[rid]; return; }
+    if (S.mode === 'online' && S.ref) { try { const p = rtRef(rid).remove(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  }
 
   return {
     MY_UID, ONLINE_OK, S, set onChange(f) { S.onChange = f; },
     createOnline, joinOnline, tryRejoin, createLocal, detach, mySeatColor, isHost, isDriver, botControlled, botLevel,
     setSetting, sit, addBot, removeSeat, setBotLevel, leaveSeat, startGame, backToLobby,
-    doPlay, doDraw, doNope, doGive, doReinsert, doPass, doResolve
+    doPlay, doDraw, doNope, doGive, doReinsert, doPass, doResolve, doRescueEnd, rtSend, rtListen, rtClear
   };
 })();
