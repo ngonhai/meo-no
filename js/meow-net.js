@@ -193,7 +193,7 @@ const Net = (function () {
   }
   const doPlay = (v, color, kinds, opts) => act(v, (g, s) => M.play(g, color, kinds, opts, s));
   const doDraw = (v, color) => act(v, g => M.draw(g, color));
-  const doNope = (v, color) => act(v, g => M.nope(g, color));
+  const doNope = (v, color, seenN) => act(v, g => M.nope(g, color, seenN));      // seenN: the Nope count the player saw (stale press = refused, card kept)
   const doGive = (v, color, kind) => act(v, g => M.giveCard(g, color, kind));
   const doReinsert = (v, color, pos) => act(v, g => M.reinsert(g, color, pos));
   const doRescueEnd = (rid, ok) => act(null, g => M.rescueEnd(g, rid, ok));      // 2v2 minigame result (first report wins, repeats are ignored)

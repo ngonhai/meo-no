@@ -4,7 +4,7 @@
   'use strict';
   const M = Meow, $ = id => document.getElementById(id);
   const LAST_KEY = 'meow_last_room', NAME_KEY = 'meow_name';
-  const ORDER = ['defuse', 'nope', 'attack', 'skip', 'shuffle', 'future', 'favor', 'cat1', 'cat2', 'cat3', 'cat4', 'cat5', 'bomb'];
+  const ORDER = ['defuse', 'nope', 'attack', 'skip', 'shuffle', 'future', 'clone', 'favor', 'cat1', 'cat2', 'cat3', 'cat4', 'cat5', 'bomb'];
   const U = {
     screen: 'loading', sel: {}, timers: [], tickTimers: [], driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null,
     fxV: null, freshV: null, fresh: null, freshWhy: null, fxTimers: [], handSig: null, prevHand: null, dealing: false, winV: null, reTimer: null, giveSel: null, chips: {}, lastTurn: null
@@ -100,8 +100,12 @@
       '<div class="rule-row"><div><b>' + t('set.nopeSec') + '</b><p class="muted">' + t('set.nopeHint') + '</p></div>' + seg('nopeSec', M.NOPE_SECS, s.nopeSec, v => t('set.secs', v)) + '</div>' +
       '<div class="rule-row"><div><b>' + t('set.hand') + '</b><p class="muted">' + t('set.handHint') + '</p></div><span class="stepper"><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="-1"' + dis + '>−</button><b>' + s.hand + '</b><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="1"' + dis + '>+</button></span></div>' +
       '<div class="rule-row"><div><b>' + t('set.combos') + '</b><p class="muted">' + t('set.combosHint') + '</p></div>' + seg('combos', [true, false], s.combos, v => v ? t('set.on') : t('set.off')) + '</div>' +
+      '<div class="rule-row"><div><b>' + t('set.cloneAny') + '</b><p class="muted">' + t('set.cloneAnyHint') + '</p></div>' + seg('cloneAny', [true, false], s.cloneAny, v => v ? t('set.on') : t('set.off')) + '</div>' +
       '<div class="rule-row"><div><b>' + t('set.mode') + '</b><p class="muted">' + t('set.modeHint') + '</p></div>' + seg('mode', M.MODES, s.mode, v => t('set.' + v)) + '</div>' +
-      (s.mode === 'team' ? '<div class="rule-row sub"><div><b>' + t('set.coop') + '</b><p class="muted">' + t('set.coopHint') + '</p></div>' + seg('coop', M.COOP_TRIGGERS, s.coop, v => t(v === 'always' ? 'set.coopAlways' : 'set.coopNoDefuse')) + '</div>' : '');
+      (s.mode === 'team' ? '<div class="rule-row sub"><div><b>' + t('set.coop') + '</b><p class="muted">' + t('set.coopHint') + '</p></div>' + seg('coop', M.COOP_TRIGGERS, s.coop, v => t(v === 'always' ? 'set.coopAlways' : 'set.coopNoDefuse')) + '</div>' +
+        '<div class="rule-row sub"><div><b>' + t('set.coopGhost') + '</b><p class="muted">' + t('set.coopGhostHint') + '</p></div>' + seg('coopGhost', [true, false], s.coopGhost, v => v ? t('set.on') : t('set.off')) + '</div>' +
+        '<div class="rule-row sub"><div><b>' + t('set.bombHeat') + '</b><p class="muted">' + t('set.bombHeatHint') + '</p></div>' + seg('bombHeat', [true, false], s.bombHeat, v => v ? t('set.on') : t('set.off')) + '</div>' +
+        '<div class="rule-row sub"><div><b>' + t('set.suddenBomb') + '</b><p class="muted">' + t('set.suddenBombHint') + '</p></div>' + seg('suddenBomb', [true, false], s.suddenBomb, v => v ? t('set.on') : t('set.off')) + '</div>' : '');
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -132,14 +136,26 @@
       if (U.chips[c] !== sig) { el.innerHTML = chipHTML(r, c); U.chips[c] = sig; }
     });
   }
+  // The cards played before the last one lie messily and faded under it, so everybody can still see what came before.
+  // Every card keeps the same scatter for as long as it is on the pile (the offsets come from its position in the discard).
+  const UNDER_SHOWN = 4;
+  function discardUnder(d) {
+    let h = '';
+    for (let j = Math.max(0, d.length - 1 - UNDER_SHOWN); j < d.length - 1; j++) {
+      const r = k => { const x = Math.imul(j + 1, 2654435761) ^ Math.imul(k + 7, 40503); return (((x ^ (x >>> 15)) >>> 0) % 1000) / 1000 - .5; };   // stable -.5..+.5
+      const age = d.length - 1 - j;                                             // 1 = the card right under the top one
+      h += cardHTML(d[j], 'under', ' style="--ux:' + Math.round(r(1) * 56) + '%;--uy:' + Math.round(r(2) * 40 - 8) + '%;--ur:' + Math.round(r(3) * 44) + 'deg;--uo:' + (age === 1 ? .62 : age === 2 ? .5 : .38) + '"');
+    }
+    return h;
+  }
   function renderPiles(r, me) {
     const g = r.g;
     $('deck-count').textContent = t('deckLeft', g.deck.length);
     $('deck-pile').classList.toggle('can-draw', !!me && g.alive[me] && g.phase === 'play' && g.turn === me);
     const top = g.discard.length ? g.discard[g.discard.length - 1] : null;
-    $('discard-top').innerHTML = top ? cardHTML(top, 'mini-lg') : '<div class="card-slot"></div>';
+    $('discard-top').innerHTML = top ? discardUnder(g.discard) + cardHTML(top, 'mini-lg') : '<div class="card-slot"></div>';
     const known = $('peek-known');
-    if (me && g.peek && g.peek.by === me && g.peek.cards.length) {
+    if (me && g.peek && (g.peek.by === me || (g.peek.also || []).indexOf(me) >= 0) && g.peek.cards.length) {
       known.innerHTML = '<span>' + t('knownTop') + '</span>' + g.peek.cards.map(k => CatArt.iconHTML(k, 'known-ico')).join('');
       known.style.display = '';
     } else known.style.display = 'none';
@@ -154,7 +170,7 @@
     else if (g.phase === 'reinsert') { txt = g.reins.by === me ? t('reinsertTitle') : t('waitingOn', nm(r, g.reins.by)); col = g.reins.by; }
     else if (me && g.turn === me) txt = t('yourTurn') + (g.left > 1 ? ' · ' + t('turnsLeft', g.left) : '');
     else txt = t('turnOf', nm(r, g.turn)) + (g.left > 1 ? ' · ' + t('turnsLeft', g.left) : '');
-    if (me && !g.alive[me] && g.phase !== 'over') txt = t('youOut');
+    if (me && !g.alive[me] && g.phase !== 'over' && g.phase !== 'rescue') txt = t('youOut');
     b.textContent = ''; b.innerHTML = txt; b.style.setProperty('--tc', 'var(--' + col + ')');
     b.classList.toggle('mine', !!me && g.turn === me && g.phase === 'play');
     const mine = !!me && g.alive[me] && g.turn === me && g.phase === 'play';
@@ -164,19 +180,27 @@
     const n = nm(r, p.by), tg = p.target ? nm(r, p.target) : '';
     if (p.kind === 'pair') return t('log.playPair', n, cname(p.kinds[0]), tg);
     if (p.kind === 'triple') return t('log.playTriple', n, cname(p.kinds[0]), tg, cname(p.name));
+    if (p.kind === 'five') return t('log.playFive', n, cname(p.name));
     if (p.kind === 'favor') return t('log.playFavor', n, cname('favor'), tg);
+    if (p.kind === 'clone') { const w = ['pair', 'triple', 'five'].indexOf(p.copy) >= 0 ? t('cards.' + p.copy) : cname(p.copy); return t('log.playClone', n, cname('clone'), w) + (tg ? ' → ' + tg : '') + (p.name ? ' (' + cname(p.name) + ')' : ''); }
     return t('log.play1', n, cname(p.kind));
   }
   function renderBar(r, me) {
     const g = r.g, bar = $('nope-bar');
-    if (g.phase !== 'pending') { bar.classList.remove('show'); U.barKey = null; clearTicks(); return; }
-    const p = g.pending, key = p.pid + ':' + p.n, canNope = !!me && M.canNope(g, me);
+    if (g.phase !== 'pending') { bar.classList.remove('show', 'cool'); U.barKey = null; U.nopeSeen = null; clearTicks(); return; }
+    const p = g.pending, key = p.pid + ':' + p.n, canNope = !!me && (M.canNope(g, me) || M.cloneReady(g, me));
     bar.classList.add('show');
+    // A Nope just landed: for a moment everybody EXCEPT the player who got Noped is held back, so someone who was already pressing
+    // Nope (not knowing a second person would too) cannot cancel the first Nope by accident. The press is also refused server-side (seenN).
+    const sn = U.nopeSeen;
+    if (!sn || sn.pid !== p.pid) U.nopeSeen = { pid: p.pid, n: p.n, until: 0, exempt: null };
+    else if (sn.n !== p.n) { U.nopeSeen = { pid: p.pid, n: p.n, until: Date.now() + NOPE_GRACE, exempt: M.nopedPlayer(g) }; clearTimeout(U.coolTimer); U.coolTimer = setTimeout(() => bar.classList.remove('cool'), NOPE_GRACE + 30); }
+    bar.classList.toggle('cool', nopeLocked(me));
     if (U.barKey === key) { bar.classList.toggle('can', canNope && U.passedKey !== key); return; }
     U.barKey = key; clearTicks();
     const ms = r.settings.nopeSec * 1000;
     bar.innerHTML = '<div class="nb-cards">' + p.kinds.map(k => cardHTML(k, 'mini')).join('') + '</div><div class="nb-main"><div class="nb-title">' + playText(r, p) + '</div>' +
-      '<div class="nb-sub">' + t('nopeWindow') + (p.nopes.length ? ' · <b>' + t('nopeCount', p.nopes.length) + '</b>' : '') + '</div><div class="nb-time"><i style="animation-duration:' + ms + 'ms"></i></div>' +
+      '<div class="nb-sub">' + t('nopeWindow') + (p.nopes.length ? ' · <b>' + t('nopeCount', p.nopes.length) + '</b>' : '') + (me && g.alive[me] && !M.nopeAllowed(g, me) ? ' · <i>' + t(p.nopes.length ? 'nopeOnlyNoped' : 'nopeMate') + '</i>' : '') + '</div><div class="nb-time"><i style="animation-duration:' + ms + 'ms"></i></div>' +
       '<div class="nb-actions"><button type="button" class="btn btn-nope" data-act="nope">' + t('nopeBtn') + '</button><button type="button" class="btn btn-secondary" data-act="pass">' + t('passBtn') + '</button></div></div>';
     bar.classList.toggle('can', canNope);
     if (canNope && ms >= 4000) [3, 2, 1].forEach(s => U.tickTimers.push(setTimeout(() => playSound('timerTick'), ms - s * 1000)));
@@ -187,8 +211,8 @@
   const selKinds = () => Object.keys(U.sel).reduce((a, k) => a.concat(Array(U.sel[k]).fill(k)), []);
   function selValid(r, me) {
     const g = r.g, kinds = selKinds(); if (!kinds.length) return false;
-    const tg = M.validTargets(g, me)[0];
-    return M.canPlay(g, me, kinds, { target: tg, name: 'defuse' }, r.settings);
+    const tg = M.targetsFor(g, me, kinds)[0];
+    return M.canPlay(g, me, kinds, { target: tg, name: M.recoverable(g, kinds.length === 1 && kinds[0] === 'clone' ? ['clone'] : kinds)[0] || 'defuse' }, r.settings);
   }
   function layoutHand() {
     const el = $('hand'), c = el.firstElementChild; if (!c) return;
@@ -211,7 +235,7 @@
     const cnt = {}; hand.forEach(k => { cnt[k] = (cnt[k] || 0) + 1; });
     Object.keys(U.sel).forEach(k => { if ((U.sel[k] || 0) > (cnt[k] || 0)) U.sel[k] = cnt[k] || 0; if (!U.sel[k]) delete U.sel[k]; });
     if (!(g.phase === 'play' && g.turn === me)) U.sel = {};
-    const sig = hand.join(',') + '|' + JSON.stringify(U.sel) + '|' + g.phase + '|' + (g.turn === me) + '|' + LANG;
+    const sig = hand.join(',') + '|' + JSON.stringify(U.sel) + '|' + g.phase + '|' + (g.turn === me) + '|' + LANG + '|' + (g.last || '') + '|' + (g.pending ? g.pending.pid + ':' + g.pending.n : '');
     if (sig === U.handSig) return;
     U.handSig = sig;
     // which cards are new since last render (for the deal-in animation)
@@ -224,7 +248,7 @@
     hand.forEach((k, idx) => {
       const i = seen[k] = (seen[k] || 0); seen[k]++;
       const cls = (i < (U.sel[k] || 0) ? 'sel ' : '') + (fresh[k] && i >= total[k] - fresh[k] ? 'new ' : '') + (U.dealing ? 'deal ' : '') +
-        (g.phase === 'pending' ? (k === 'nope' && M.canNope(g, me) ? 'ready' : 'dim') : (!myTurn ? 'dim' : ''));
+        (g.phase === 'pending' ? ((k === 'nope' && M.canNope(g, me)) || (k === 'clone' && M.cloneReady(g, me)) ? 'ready' : 'dim') : (!myTurn ? (k === 'clone' && g.phase === 'play' && M.cloneReady(g, me) ? 'ready' : 'dim') : ''));
       h += cardHTML(k, cls, ' data-i="' + i + '" style="--d:' + idx * 70 + 'ms"');
     });
     el.innerHTML = h; el.classList.toggle('empty', !hand.length);
@@ -235,7 +259,7 @@
     const g = r.g, bp = $('btn-play'), bd = $('btn-draw'), alive = !!me && g.alive[me], my = alive && g.phase === 'play' && g.turn === me;
     $('me-bar').style.display = alive || me ? '' : 'none';
     const kinds = selKinds(), valid = my && selValid(r, me);
-    bp.textContent = !kinds.length ? t('pickCards') : (kinds.length === 1 ? t('play1') : (kinds.length === 2 ? t('play2') : t('play3')));
+    bp.textContent = !kinds.length ? t('pickCards') : (kinds.length === 1 ? t('play1') : (kinds.length === 2 ? t('play2') : (kinds.length === 5 ? t('play5') : t('play3'))));
     bp.disabled = !valid; bp.style.display = my ? '' : 'none';
     bd.disabled = !my; bd.style.display = my ? '' : 'none';
     if (me) {
@@ -248,22 +272,42 @@
   function onCardClick(kind, i, dbl) {
     const r = room(); if (!r || !r.g) return; const g = r.g, me = myColor(r);
     if (!me || !g.alive[me]) return;
-    if (g.phase === 'pending') { if (kind === 'nope' && M.canNope(g, me)) doNope(); return; }
-    if (g.phase !== 'play' || g.turn !== me) { playSound('error'); return; }
+    if (g.phase === 'pending') { if (kind === 'nope' && M.canNope(g, me)) doNope(); else if (kind === 'clone') reactClone(); return; }
+    if (g.phase !== 'play' || g.turn !== me) { if (g.phase === 'play' && kind === 'clone' && M.cloneMode(g, me)) reactClone(); else playSound('error'); return; }   // cloneAny: a Clone can also be played on somebody else's turn
     const cur = U.sel, keys = Object.keys(cur), isCat = M.CATS.indexOf(kind) >= 0;
     if (dbl) { U.sel = {}; U.sel[kind] = 1; renderHand(r, me); U.handSig = null; renderHand(r, me); updateActions(r, me); return playSelected(); }
     if (i < (cur[kind] || 0)) { cur[kind] = i; if (!cur[kind]) delete cur[kind]; playSound('cardDeselect'); }
-    else if (isCat && keys.length === 1 && keys[0] === kind && cur[kind] < 3) { cur[kind]++; playSound('cardSelect'); }
+    else if (comboAdd(g, cur, kind)) { cur[kind] = (cur[kind] || 0) + 1; playSound('cardSelect'); }       // builds a pair / triple (same cat) or a set of five (different cats); a Clone may stand in for the cat played last
     else { U.sel = {}; U.sel[kind] = 1; playSound('cardSelect'); }
     renderHand(r, me); updateActions(r, me);
+  }
+  function comboAdd(g, cur, kind) {
+    const wild = M.wildCat(g), ok = k => M.CATS.indexOf(k) >= 0 || (k === 'clone' && !!wild);
+    if (!ok(kind) || !Object.keys(cur).every(ok)) return false;
+    const n = Object.assign({}, cur); n[kind] = (n[kind] || 0) + 1;
+    const total = Object.keys(n).reduce((a, k) => a + n[k], 0), cats = Object.keys(n).filter(k => k !== 'clone');
+    return (cats.length <= 1 && total <= 3) || (cats.every(k => n[k] === 1) && total <= 5);
   }
   function playSelected() {
     const r = room(); if (!r || !r.g) return; const g = r.g, me = myColor(r), kinds = selKinds();
     if (!me || !selValid(r, me)) { playSound('error'); return; }
-    if (!M.needsTarget(kinds)) return sendPlay(kinds, {});
-    const tg = M.validTargets(g, me);
+    if (M.needsPick(g, kinds)) return openRecover(r, kinds);
+    if (!M.needsTarget(kinds, g)) return sendPlay(kinds, {});
+    const tg = M.targetsFor(g, me, kinds);                          // Xin Xỏ (also via Nhân Bản) may ask your teammate too
     if (!tg.length) { toast(t('noTarget')); return; }
-    if (tg.length === 1 && kinds.length < 3) return sendPlay(kinds, { target: tg[0] });
+    if (tg.length === 1 && !(kinds.length === 3 || M.needsName(g, kinds))) return sendPlay(kinds, { target: tg[0] });
+    openTarget(r, kinds, tg);
+  }
+  function reactClone() {                                          // house rule: Nhân Bản while a card is on the table
+    const r = room(), me = myColor(r); if (!r || !r.g || !me) return;
+    if (!M.cloneReady(r.g, me) || (M.cloneKind(r.g) === 'nope' && nopeLocked(me))) { playSound('error'); return; }       // a copied Nope obeys the same "just after a Nope" hold-back
+    U.sel = {}; playSelectedKinds(r, me, ['clone']);
+  }
+  function playSelectedKinds(r, me, kinds) {
+    const g = r.g; if (M.needsPick(g, kinds)) return openRecover(r, kinds);
+    if (!M.needsTarget(kinds, g)) return sendPlay(kinds, {});
+    const tg = M.targetsFor(g, me, kinds); if (!tg.length) { toast(t('noTarget')); return; }
+    if (tg.length === 1 && !M.needsName(g, kinds)) return sendPlay(kinds, { target: tg[0] });
     openTarget(r, kinds, tg);
   }
   function sendPlay(kinds, opts) {
@@ -272,7 +316,13 @@
     Net.doPlay(r.g.v, me, kinds, opts).then(ok => { if (!ok) playSound('error'); });
   }
   function doDraw() { const r = room(), me = myColor(r); if (!r || !r.g || !me) return; if (r.g.phase !== 'play' || r.g.turn !== me) { playSound('error'); return; } U.sel = {}; U.fresh = null; Net.doDraw(r.g.v, me).then(ok => { if (!ok) playSound('error'); }); }
-  function doNope() { const r = room(), me = myColor(r); if (!r || !r.g || !me || !M.canNope(r.g, me)) return; Net.doNope(r.g.v, me).then(ok => { if (!ok) playSound('error'); }); }
+  const NOPE_GRACE = 650;                                    // ms an unaware player is held back after somebody else's Nope lands
+  function nopeLocked(me) { const s = U.nopeSeen; return !!s && !!me && Date.now() < s.until && s.exempt !== me; }
+  function doNope() {
+    const r = room(), me = myColor(r); if (!r || !r.g || !me || !M.canNope(r.g, me)) return;
+    if (nopeLocked(me)) return;                              // pressed too soon after another Nope: ignored, the card stays in hand
+    Net.doNope(r.g.v, me, r.g.pending.n).then(ok => { if (!ok) playSound('error'); });
+  }
   function doPass() { const r = room(), me = myColor(r); if (!r || !r.g || !me || r.g.phase !== 'pending') return; const p = r.g.pending; U.passedKey = p.pid + ':' + p.n; $('nope-bar').classList.remove('can'); playSound('pass'); Net.doPass(me, p.pid, p.n); }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -285,7 +335,7 @@
     $('modal').onclick = e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       if (b.dataset.act === 'close') closeModal();
-      if (b.dataset.act === 'target') { if (kinds.length === 3) openName(r, kinds, b.dataset.color); else sendPlay(kinds, { target: b.dataset.color }); }
+      if (b.dataset.act === 'target') { if (kinds.length === 3 || M.needsName(r.g, kinds)) openName(r, kinds, b.dataset.color); else sendPlay(kinds, { target: b.dataset.color }); }
     };
   }
   function openName(r, kinds, target) {
@@ -295,6 +345,16 @@
       const b = e.target.closest('[data-act]'); if (!b) return;
       if (b.dataset.act === 'close') closeModal();
       if (b.dataset.act === 'name') sendPlay(kinds, { target, name: b.dataset.kind });
+    };
+  }
+  function openRecover(r, kinds) {                                  // five different cats (or a Clone of it): choose ANY card from the discard pile
+    const g = r.g, isClone = kinds.length === 1 && kinds[0] === 'clone', cnts = M.recoverCounts(g, isClone ? ['clone'] : kinds), list = M.recoverable(g, isClone ? ['clone'] : kinds);
+    openModal('<h3>' + t('pickRecover') + '</h3><p class="muted">' + t('pickRecoverBody') + '</p><div class="name-grid">' + list.map(k => '<button type="button" class="pick" data-act="name" data-kind="' + k + '">' + cardHTML(k, 'mini') + (cnts[k] > 1 ? '<span class="pick-n">×' + cnts[k] + '</span>' : '') + '</button>').join('') +
+      '</div><button type="button" class="btn btn-secondary btn-block" data-act="close">' + t('close') + '</button>', 'name', 'wide');
+    $('modal').onclick = e => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      if (b.dataset.act === 'close') closeModal();
+      if (b.dataset.act === 'name') sendPlay(kinds, { name: b.dataset.kind });
     };
   }
   function openPeek(cards) {
@@ -326,7 +386,7 @@
     };
   }
   // one row of example cards per rule (same order as rulesBody in i18n.js); 'back' = a face-down card
-  const RULE_DEMO = [['bomb'], ['back'], ['defuse'], ['nope'], ['attack'], ['skip', 'shuffle', 'future'], ['favor'], ['cat1', 'cat1', 'cat3', 'cat3', 'cat3'], ['bomb', 'defuse']];
+  const RULE_DEMO = [['bomb'], ['back'], ['defuse'], ['nope'], ['attack'], ['skip', 'shuffle', 'future'], ['favor'], ['cat1', 'cat1', 'cat3', 'cat3', 'cat3'], ['cat1', 'cat2', 'cat3', 'cat4', 'cat5'], ['bomb', 'defuse'], ['clone']];
   function openRules() {
     const body = I18N[LANG].rulesBody || I18N[DEFAULT_LANG].rulesBody;
     openModal('<h3>' + t('rulesTitle') + '</h3><ul class="rules-list">' + body.map((x, i) => '<li><div class="rule-txt">' + x + '</div><div class="rule-demo">' +
@@ -356,20 +416,26 @@
     const needRe = !!me && g.phase === 'reinsert' && g.reins && g.reins.by === me;
     if (!needGive && k === 'give') closeModal();
     if (!needRe && k === 'reinsert') closeModal();
-    if ((k === 'target' || k === 'name') && !(g.phase === 'play' && g.turn === me)) closeModal();
+    if ((k === 'target' || k === 'name') && !(g.phase === 'play' && g.turn === me) && !(me && M.cloneMode(g, me))) closeModal();
     if (needGive && k !== 'give' && !U.giveTimer) { U.giveTimer = setTimeout(() => { U.giveTimer = null; const rr = room(); if (rr && rr.g && rr.g.phase === 'give' && rr.g.give.from === me && U.modalFor !== 'give') openGive(rr, me); }, 500); }
     if (needRe && k !== 'reinsert' && !U.reTimer) { U.reTimer = setTimeout(() => { U.reTimer = null; const rr = room(); if (rr && rr.g && rr.g.phase === 'reinsert' && rr.g.reins.by === me && U.modalFor !== 'reinsert') openReinsert(rr, me); }, 1500); }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
   // log
+  const flames = h => h > 0 ? ' ' + '🔥'.repeat(Math.min(3, h)) : '';       // bomb heat shown next to its banner / log line
   function fmtLog(r, e, me) {
     const n = e.by ? nm(r, e.by) : '';
+    if (e.k === 'fizzle' && e.calm) return { x: t('log.calm', n), c: '' };
     switch (e.k) {
-      case 'play': return { x: playText(r, { by: e.by, kind: e.kind, kinds: e.kinds, target: e.target, name: e.name }), c: 'play' };
+      case 'play': return { x: playText(r, { by: e.by, kind: e.kind, kinds: e.kinds, target: e.target, name: e.name, copy: e.copy }), c: 'play' };
       case 'nope': return { x: t('log.nope', n, e.n), c: 'nope' };
-      case 'cancel': return { x: t('log.cancel', n, e.kind === 'pair' || e.kind === 'triple' ? t('cards.' + e.kind) : cname(e.kind)), c: 'nope' };
-      case 'attack': case 'skip': case 'shuffle': case 'future': case 'draw': case 'bomb': case 'defuse': case 'reinsert': case 'explode': case 'win': case 'fizzle': return { x: t('log.' + e.k, n), c: e.k === 'bomb' || e.k === 'explode' ? 'danger' : (e.k === 'defuse' || e.k === 'win' ? 'good' : '') };
+      case 'cancel': return { x: t('log.cancel', n, ['pair', 'triple', 'five'].indexOf(e.kind) >= 0 ? t('cards.' + e.kind) : cname(e.kind)), c: 'nope' };
+      case 'recover': return { x: t('log.recover', n, cname(e.name)), c: 'play' };
+      case 'bomb': return { x: t('log.bomb', n) + flames(e.heat), c: 'danger' };
+      case 'scorch': return { x: t('log.scorch', n), c: 'danger' };
+      case 'hotdeck': return { x: t('log.hotdeck'), c: 'danger' };
+      case 'attack': case 'skip': case 'shuffle': case 'future': case 'draw': case 'defuse': case 'reinsert': case 'explode': case 'win': case 'fizzle': return { x: t('log.' + e.k, n), c: e.k === 'bomb' || e.k === 'explode' ? 'danger' : (e.k === 'defuse' || e.k === 'win' ? 'good' : '') };
       case 'favor': return { x: t('log.favor', n, nm(r, e.target)), c: '' };
       case 'give': return { x: t('log.give', nm(r, e.from), n, null), c: '' };
       case 'steal': return { x: t('log.steal', n, nm(r, e.from), null), c: 'play' };
@@ -431,13 +497,17 @@
       case 'steal': playSound('steal'); FX.fly(anchor(e.from, me), e.by === me ? slot(me) : anchor(e.by, me), backCard(), { w: 60, d: 420 });
         if (e.by === me) setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350);
         else if (e.from === me) toast(t('stolen', cname(e.card), nm(r, e.by))); break;
+      case 'recover': playSound('steal'); FX.fly($('discard-pile'), e.by === me ? slot(me) : anchor(e.by, me), cardHTML(e.card), { w: 60, d: 420 });
+        if (e.by === me) setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350); break;
       case 'miss': case 'fizzle': playSound('stealMiss'); break;
       case 'draw': playSound('cardDraw');
         if (e.by === me && e.card) FX.fly($('deck-pile'), slot(me), cardHTML(e.card), { w: $('deck-pile').querySelector('.pile-stack').offsetWidth, d: 600, to: 1 });   // the top card leaves the pile and lands in its slot
         else FX.fly($('deck-pile'), anchor(e.by, me), backCard(), { w: 64, d: 400, to: .6 });
         break;
-      case 'bomb': FX.pop(cardHTML('bomb', 'pop-card'), t('bombBanner', nm(r, e.by)), 'nope'); playSound('bombDraw'); FX.banner(t('bombBanner', nm(r, e.by)), 'danger'); [250, 500, 750].forEach(ms => setTimeout(() => playSound('bombTick'), ms)); buzz([60, 40, 60]); break;
+      case 'bomb': FX.pop(cardHTML('bomb', 'pop-card'), t('bombBanner', nm(r, e.by)) + flames(e.heat), 'nope'); playSound('bombDraw'); FX.banner(t('bombBanner', nm(r, e.by)) + flames(e.heat), 'danger'); [250, 500, 750].forEach(ms => setTimeout(() => playSound('bombTick'), ms)); buzz([60, 40, 60]); break;
       case 'rescue': playSound('bombTick'); break;
+      case 'scorch': playSound('bombTick'); FX.banner(t('scorchBanner'), 'danger'); buzz([80, 40, 80]); break;
+      case 'hotdeck': playSound('bombTick'); FX.banner(t('hotdeckBanner'), 'danger'); break;
       case 'rescued': playSound('defuse'); FX.banner(t('rescuedBanner'), 'good'); buzz([40, 30, 40]); break;
       case 'rescueFail': playSound('stealMiss'); break;
       case 'defuse': playSound('defuse'); FX.banner(t('defusedBanner'), 'good'); break;
@@ -461,7 +531,7 @@
       if (U.passKey !== key) {
         U.passKey = key;
         const mineEven = p.by === me && p.nopes.length % 2 === 0;
-        if (!M.canNope(g, me) || mineEven) setTimeout(() => { const rr = room(); if (rr && rr.g && rr.g.phase === 'pending' && rr.g.pending.pid === p.pid && rr.g.pending.n === p.n) Net.doPass(me, p.pid, p.n); }, rnd(350, 1000));
+        if ((!M.canNope(g, me) && !M.cloneReady(g, me)) || mineEven) setTimeout(() => { const rr = room(); if (rr && rr.g && rr.g.phase === 'pending' && rr.g.pending.pid === p.pid && rr.g.pending.n === p.n) Net.doPass(me, p.pid, p.n); }, rnd(350, 1000));
       }
     }
     if (!Net.isDriver(r)) { clearTimers(); U.driveKey = null; return; }
@@ -474,7 +544,7 @@
       else if (g.phase === 'give' && Net.botControlled(r, g.give.from)) later(rnd(1000, 1700), () => { const rr = room(); if (rr && rr.g && rr.g.v === v) Net.doGive(v, g.give.from, M.botGive(rr.g, g.give.from)); });
       else if (g.phase === 'reinsert' && Net.botControlled(r, g.reins.by)) later(rnd(1300, 2000), () => { const rr = room(); if (rr && rr.g && rr.g.v === v) Net.doReinsert(v, g.reins.by, M.botReinsert(rr.g, g.reins.by, lvl(g.reins.by))); });
       else if (g.phase === 'rescue' && g.rescue) {            // safety net: if nobody reports a result, the driver fails the minigame
-        const rs = g.rescue; later((Coop.limit(rs.game) + 16) * 1000, () => Net.doRescueEnd(rs.id, false));
+        const rs = g.rescue; later((Coop.limit(rs.game, rs.heat || 0) + 16) * 1000, () => Net.doRescueEnd(rs.id, false));
       }
       else if (g.phase === 'pending') {
         const p = g.pending, ms = r.settings.nopeSec * 1000;
@@ -482,7 +552,7 @@
           if (!Net.botControlled(r, c)) return;
           later(Math.min(rnd(800, 2200), ms - 500), () => {
             const rr = room(); if (!rr || !rr.g || rr.g.phase !== 'pending' || rr.g.pending.pid !== p.pid || rr.g.pending.n !== p.n) return;
-            if (M.botReact(rr.g, c, lvl(c)) === 'nope') Net.doNope(rr.g.v, c); else Net.doPass(c, p.pid, p.n);
+            if (M.botReact(rr.g, c, lvl(c)) === 'nope') Net.doNope(rr.g.v, c, rr.g.pending.n); else Net.doPass(c, p.pid, p.n);
           });
         });
         later(ms + 150, () => Net.doResolve(p.pid, p.n));
@@ -512,8 +582,9 @@
     const human = [rs.by, rs.mate].filter(c => !Net.botControlled(r, c)), auth = human[0] || null, sim = {};
     ['p1', 'p2'].forEach(k => { if (Net.botControlled(r, roles[k]) && driver) sim[k] = Net.botLevel(r.seats[roles[k]]); });   // the driver plays the bot teammate
     closeModal(); U.sel = {};
-    Coop.open({ rid: rs.id, kind: rs.game, seed: rs.seed, roles, me, sim, isAuth: auth ? auth === me : driver, t, avatar: c => CatArt.avatarSVG(c),
+    Coop.open({ rid: rs.id, kind: rs.game, seed: rs.seed, level: rs.heat || 0, roles, me, sim, isAuth: auth ? auth === me : driver, t, avatar: c => CatArt.avatarSVG(c),
       names: { p1: nm(r, roles.p1), p2: nm(r, roles.p2) }, sound: playSound, buzz,
+      sbKey: me || ('sp_' + String(Net.MY_UID).replace(/[^A-Za-z0-9_]/g, '')), nameOf: k => (r.seats[k] ? nm(r, k) : ''),   // viewers' sabotage node (seat colour, or a spectator id)
       send: (color, data) => Net.rtSend(rs.id, color, data), listen: cb => Net.rtListen(rs.id, cb),
       onEnd: ok => { const rr = room(); if (rr && rr.g && rr.g.phase === 'rescue') Net.doRescueEnd(rs.id, ok).then(() => setTimeout(() => Net.rtClear(rs.id), 2500)); } });
   }
@@ -532,9 +603,9 @@
   function resetGameUI() {
     clearTimeout(U.coopTimer); U.coopId = null; Coop.close();
     clearTimers(); clearTicks(); U.fxTimers.forEach(clearTimeout); U.fxTimers = []; clearTimeout(U.reTimer); clearTimeout(U.giveTimer); U.reTimer = U.giveTimer = null;
-    Object.assign(U, { sel: {}, fresh: null, freshWhy: null, freshV: null, driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null, fxV: null, handSig: null, prevHand: null, dealing: false, winV: null, chips: {} });
+    Object.assign(U, { sel: {}, fresh: null, freshWhy: null, freshV: null, driveKey: null, earlyKey: null, passKey: null, passedKey: null, barKey: null, nopeSeen: null, fxV: null, handSig: null, prevHand: null, dealing: false, winV: null, chips: {} });
     ['opps', 'fx', 'stage', 'hand'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
-    $('log-panel').dataset.sig = ''; $('nope-bar').classList.remove('show');
+    $('log-panel').dataset.sig = ''; clearTimeout(U.coolTimer); $('nope-bar').classList.remove('show', 'cool');
   }
   function onRoomChange(r, prev) {
     if (!r) { if (U.screen === 'waiting' || U.screen === 'game') { toast(t('noRoom')); leaveToLobby(true); } return; }
