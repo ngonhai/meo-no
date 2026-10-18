@@ -29,7 +29,18 @@ const Net = (function () {
     if (r.g) M.normalize(r.g);
     return r;
   }
-  function emit(prev) { if (S.onChange) S.onChange(S.room, prev); }
+  // Offline games live only in memory, so every change is also copied to localStorage: a page refresh restores the very same table (see restoreLocal).
+  const LOCAL_KEY = 'meow_local_room', LOCAL_TTL = 12 * 36e5;
+  function saveLocal() { try { if (S.mode === 'local' && S.room) localStorage.setItem(LOCAL_KEY, JSON.stringify({ ts: Date.now(), room: S.room })); } catch (e) {} }
+  function clearLocal() { try { localStorage.removeItem(LOCAL_KEY); } catch (e) {} }
+  function restoreLocal() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null');
+      if (!v || !v.room || Date.now() - v.ts > LOCAL_TTL || !v.room.seats || !Object.values(v.room.seats).some(s => s && s.local)) return false;
+      S.mode = 'local'; S.code = 'LOCAL'; S.room = normalizeRoom(v.room); emit(null); return true;
+    } catch (e) { clearLocal(); return false; }
+  }
+  function emit(prev) { saveLocal(); if (S.onChange) S.onChange(S.room, prev); }
 
   async function mutate(fn) {
     if (S.mode === 'local') {
@@ -73,6 +84,7 @@ const Net = (function () {
   function detach() {
     if (S.ref) { S.ref.off(); S.ref = null; }
     if (S.connRef) { S.connRef.off(); S.connRef = null; }
+    if (S.mode === 'local') clearLocal();                  // leaving an offline game on purpose = nothing to resume
     S.mode = null; S.code = null; S.room = null;
   }
 
@@ -109,13 +121,14 @@ const Net = (function () {
     }
     return { ok: true, spectator: true };
   }
-  async function tryRejoin(code) {
+  // `spectate`: also re-enter a match in progress I was only watching (page refresh); a lobby needs a seat.
+  async function tryRejoin(code, spectate) {
     if (!ONLINE_OK || !code) return null;
     code = code.toUpperCase();
     const snap = await db.ref('rooms/' + keyOf(code)).get();
     if (!snap.exists()) return null;
     const r = normalizeRoom(snap.val());
-    if (Object.values(r.seats).some(s => s && s.uid === MY_UID)) { attach(code); return code; }
+    if (Object.values(r.seats).some(s => s && s.uid === MY_UID) || (spectate && r.status !== 'lobby')) { attach(code); return code; }
     return null;
   }
   function createLocal(name) {
@@ -123,7 +136,7 @@ const Net = (function () {
     const room = baseRoom('local_host');
     room.seats.coral = { uid: 'local_1', name, local: true, bot: false, connected: true };
     room.seats.mint = { uid: 'bot_mint', name: '', bot: true, level: 'normal', connected: true };
-    S.room = normalizeRoom(room); return 'LOCAL';
+    S.room = normalizeRoom(room); saveLocal(); return 'LOCAL';
   }
 
   const isHost = room => S.mode === 'local' || (!!room && room.hostUid === MY_UID);
@@ -234,7 +247,7 @@ const Net = (function () {
 
   return {
     MY_UID, ONLINE_OK, S, set onChange(f) { S.onChange = f; },
-    createOnline, joinOnline, tryRejoin, createLocal, detach, mySeatColor, isHost, isDriver, botControlled, botLevel,
+    createOnline, joinOnline, tryRejoin, createLocal, restoreLocal, detach, mySeatColor, isHost, isDriver, botControlled, botLevel,
     setSetting, sit, addBot, removeSeat, setBotLevel, leaveSeat, startGame, backToLobby,
     doPlay, doDraw, doNope, doGive, doReinsert, doPass, doResolve, doRescueEnd, rtSend, rtListen, rtClear
   };

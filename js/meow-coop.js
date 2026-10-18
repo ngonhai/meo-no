@@ -19,6 +19,7 @@
 //   Game classes work headless (no DOM) so they can be tested in node: see tests/coop.test.js.
 const Coop = (function () {
   'use strict';
+  const Ic = typeof Icon !== 'undefined' ? Icon : (typeof require !== 'undefined' ? require('./icons.js') : { svg: () => '', arrow: () => '', flames: () => '' });   // polygon icons (js/icons.js)
 
   // ------------------------------------------------------------------------------------------------------------
   // tiny helpers
@@ -171,13 +172,14 @@ const Coop = (function () {
       if (d.s && d.s.n > (this.seenSay[r] || 0)) { this.seenSay[r] = d.s.n; if (this.playing) { this.api.bubble(r, this.sayHTML(d.s.v), false); if (this.local[this.other(r)] === 'bot') this.heard(this.other(r), d.s.v); } }
       if (d.q == null || d.q > (this.seenQ[r] || 0)) { this.seenQ[r] = d.q || 0; this.apply(r, d); }
     }
-    sayHTML(v) { const m = /^chat:(\d)$/.exec(v || ''); return m ? esc(A(this.t('coop.chat'))[+m[1]] || '') : ''; }
+    sayHTML(v) { const m = /^chat:(\d)$/.exec(v || ''); return m ? Ic.svg(CHAT_ICONS[+m[1]]) + ' ' + esc(A(this.t('coop.chat'))[+m[1]] || '') : ''; }
     heard() {} apply() {} frame() {} result() { return 0; } penalty() { return 0; } build() {} render() {} key() { return false; } destroy() {}
     canSabo() { return false; } onSabo() {}                          // viewers' sabotage: only some minigames (Lái Chung) support it
     roleText() { return ''; }
   }
 
   // ---------------------------------------------------------------- Lái Chung
+  const CHAT_ICONS = ['stop', 'go', 'wait', 'oops'];
   const ZZ_SPEED = 25, ZZ_PEN = 0.8;                                 // ZZ_PEN = seconds taken off the fuse every time the dot hits a wall
   // Viewer sabotage (anyone who is NOT one of the two drivers: the opposing team, dead players, spectators).
   //   rot = turn the whole track ±90° (view only: walls/collisions are unchanged, the pads keep their places),
@@ -311,7 +313,7 @@ const Coop = (function () {
       this.el = { svg: ui.board.querySelector('svg'), dot: ui.board.querySelector('.zz-dot'), gx: ui.board.querySelector('.zz-gx'), gy: ui.board.querySelector('.zz-gy'), tx: ui.board.querySelector('.zz-tx'), ty: ui.board.querySelector('.zz-ty'), gums: ui.board.querySelector('.zz-gums'), ink: ui.board.querySelector('.zz-ink') };
       if (this.canSabo()) { this.buildSabo(ui); return; }
       if (!this.mine) return;
-      const v = this.axis[this.mine] === 'v', t = this.t, L = v ? ['▲', t('coop.zz.up'), '▼', t('coop.zz.down')] : ['◀', t('coop.zz.left'), '▶', t('coop.zz.right')];
+      const v = this.axis[this.mine] === 'v', t = this.t, L = v ? [Ic.arrow('u'), t('coop.zz.up'), Ic.arrow('d'), t('coop.zz.down')] : [Ic.arrow('l'), t('coop.zz.left'), Ic.arrow('r'), t('coop.zz.right')];
       ui.ctl.innerHTML = '<div class="pad ' + (v ? 'v' : 'h') + '"><button type="button" class="hold" data-d="neg"><b>' + L[0] + '</b><small>' + L[1] + '</small></button><button type="button" class="hold" data-d="pos"><b>' + L[2] + '</b><small>' + L[3] + '</small></button></div><p class="pad-tip">' + t('coop.zz.tip') + '</p>';
       ui.ctl.querySelectorAll('.hold').forEach(b => {
         const d = b.dataset.d, on = e => { e.preventDefault(); if (this.playing) this.held[d] = true; b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (x) {} },
@@ -321,8 +323,8 @@ const Coop = (function () {
       this.el.pad = ui.ctl.querySelector('.pad'); this.el.arrows = Array.from(ui.ctl.querySelectorAll('.hold b'));
     }
     buildSabo(ui) {                                                   // the viewer's panel: three buttons with cooldowns + tap the track to drop gum
-      const t = this.t, B = [['rot-', '↺', t('coop.sb.rotL'), 'rot'], ['rot+', '↻', t('coop.sb.rotR'), 'rot'], ['gum', '🍬', t('coop.sb.gum'), 'gum'], ['ink', '🦑', t('coop.sb.ink'), 'ink']];
-      ui.ctl.innerHTML = '<div class="sb"><h4>😈 ' + esc(t('coop.sb.title')) + '</h4><div class="sb-btns">' + B.map(([id, ic, lb, k]) => '<button type="button" class="sb-b" data-id="' + id + '" data-k="' + k + '"><b>' + ic + '</b><small>' + esc(lb) + '</small><em></em></button>').join('') + '</div><p class="pad-tip">' + esc(t('coop.sb.tip')) + '</p></div>';
+      const t = this.t, B = [['rot-', Ic.svg('rotL'), t('coop.sb.rotL'), 'rot'], ['rot+', Ic.svg('rotR'), t('coop.sb.rotR'), 'rot'], ['gum', Ic.svg('gum'), t('coop.sb.gum'), 'gum'], ['ink', Ic.svg('ink'), t('coop.sb.ink'), 'ink']];
+      ui.ctl.innerHTML = '<div class="sb"><h4>' + Ic.svg('spark') + ' ' + esc(t('coop.sb.title')) + '</h4><div class="sb-btns">' + B.map(([id, ic, lb, k]) => '<button type="button" class="sb-b" data-id="' + id + '" data-k="' + k + '"><b>' + ic + '</b><small>' + esc(lb) + '</small><em></em></button>').join('') + '</div><p class="pad-tip">' + esc(t('coop.sb.tip')) + '</p></div>';
       ui.ctl.querySelectorAll('.sb-b').forEach(b => b.addEventListener('click', () => { const id = b.dataset.id; this.sabo(b.dataset.k, id === 'rot-' ? -1 : 1); this.refreshSabo(); }));
       this.el.sbBtns = Array.from(ui.ctl.querySelectorAll('.sb-b')); this.el.svg.classList.add('aim');
       this.el.svg.addEventListener('pointerdown', e => {              // tap the board = throw gum THERE (screen point -> track coordinates, undoing the current rotation)
@@ -430,8 +432,8 @@ const Coop = (function () {
       const wiresHTML = () => '<div class="wires"><div class="wires-box">' + this.puz.wires.map((w, i) =>
         '<button type="button" class="wire" data-w="' + i + '" style="--wc:' + WIRE_COLORS[w.color].hex + '"><span class="w-num">' + (i + 1) + '</span><i class="w-line"><b></b><b></b></i><span class="w-tag">' + symSVG(w.shape, '#f6f0e2') + '</span></button>').join('') +
         '</div><div class="w-strikes"></div></div>';
-      const manualHTML = () => '<div class="manual"><h4>📖 ' + esc(t('coop.wires.manual')) + '</h4><ol>' + this.puz.steps.map((s, k) =>
-        '<li data-k="' + k + '"><em>' + esc(t('coop.wires.step', k + 1)) + '</em><span class="clue">' + this.clueHTML(s) + '</span>' + (this.mine === 'p2' ? '<button type="button" class="tell" data-k="' + k + '" title="' + esc(t('coop.wires.tell')) + '">📣</button>' : '') + '</li>').join('') +
+      const manualHTML = () => '<div class="manual"><h4>' + Ic.svg('book') + ' ' + esc(t('coop.wires.manual')) + '</h4><ol>' + this.puz.steps.map((s, k) =>
+        '<li data-k="' + k + '"><em>' + esc(t('coop.wires.step', k + 1)) + '</em><span class="clue">' + this.clueHTML(s) + '</span>' + (this.mine === 'p2' ? '<button type="button" class="tell" data-k="' + k + '" title="' + esc(t('coop.wires.tell')) + '">' + Ic.svg('megaphone') + '</button>' : '') + '</li>').join('') +
         '</ol><div class="w-strikes"></div></div>';
       if (this.mine === 'p2') ui.board.innerHTML = manualHTML();
       else ui.board.innerHTML = wiresHTML();                          // only the manual holder ever sees the manual (spectators don't)
@@ -444,7 +446,7 @@ const Coop = (function () {
       if (!this.ui) return; const s = this.state(), done = this.doneWires(), root = this.ui.root;
       root.querySelectorAll('.wire').forEach(b => { const w = +b.dataset.w; b.classList.toggle('cut', done.indexOf(w) >= 0); b.classList.toggle('zap', !!this.flash[w]); });
       root.querySelectorAll('.manual li').forEach(li => { const k = +li.dataset.k; li.classList.toggle('done', k < s.done); li.classList.toggle('cur', k === s.done && !s.success); });
-      const bolts = Array.from({ length: this.puz.maxStrikes }, (_, i) => '<span class="' + (i < s.strikes ? 'hit' : '') + '">⚡</span>').join('');
+      const bolts = Array.from({ length: this.puz.maxStrikes }, (_, i) => '<span class="' + (i < s.strikes ? 'hit' : '') + '">' + Ic.svg('bolt') + '</span>').join('');
       root.querySelectorAll('.w-strikes').forEach(el => { el.innerHTML = '<small>' + esc(this.t('coop.wires.strikes')) + '</small> ' + bolts; });
     }
     onToldUI(v) { const el = this.ui && this.ui.ctl.querySelector('.w-told-in'); if (el) el.innerHTML = this.sayHTML(v); }
@@ -510,7 +512,7 @@ const Coop = (function () {
   }
 
   // ---------------------------------------------------------------- Mê Cung Mù
-  const MZ_FIRST = 0.3, MZ_REPEAT = 0.17, MZ_PEN = 0.6, MZ_ARROW = ['⬆', '➡', '⬇', '⬅'], MZ_NAME = ['up', 'right', 'down', 'left'];
+  const MZ_FIRST = 0.3, MZ_REPEAT = 0.17, MZ_PEN = 0.6, MZ_ARROW = ['u', 'r', 'd', 'l'], MZ_NAME = ['up', 'right', 'down', 'left'];
   const MBOT = { easy: { react: [0.8, 1.4], hear: [0.3, 0.6], step: 0.4, err: 0.14 }, normal: { react: [0.5, 0.9], hear: [0.2, 0.4], step: 0.3, err: 0.06 }, hard: { react: [0.25, 0.5], hear: [0.1, 0.25], step: 0.22, err: 0.02 } };
   const MZ_KEYS = { ArrowUp: 0, KeyW: 0, ArrowRight: 1, KeyD: 1, ArrowDown: 2, KeyS: 2, ArrowLeft: 3, KeyA: 3 };
   class MazeGame extends Base {
@@ -597,7 +599,7 @@ const Coop = (function () {
     }
     sayHTML(v) {
       const m = /^dir:([URDL])(\d+)?$/.exec(v || ''); if (!m) return super.sayHTML(v);
-      const i = MZ_DIRS.indexOf(m[1]); return '<span class="say-dir">' + MZ_ARROW[i] + ' ' + esc(this.t('coop.maze.' + MZ_NAME[i])) + (m[2] ? ' ×' + m[2] : '') + '</span>';
+      const i = MZ_DIRS.indexOf(m[1]); return '<span class="say-dir">' + Ic.arrow(MZ_ARROW[i]) + ' ' + esc(this.t('coop.maze.' + MZ_NAME[i])) + (m[2] ? ' ×' + m[2] : '') + '</span>';
     }
     // ---- DOM: the guide gets the whole map, the driver (and every spectator) only a frame and the dot
     build(ui) {
@@ -614,7 +616,7 @@ const Coop = (function () {
         '<g class="zz-dot"><circle r="3" class="zz-bomb"/><circle cx="-1" cy="-1.1" r=".8" class="zz-shine"/><path class="zz-fuse" d="M1.2,-2.7 q1.6,-2.2 3.2,-1.4"/><polygon class="zz-spark" points="4.6,-5.6 5.6,-4.2 7.2,-4.5 6.1,-3.3 6.8,-1.9 5.2,-2.6 4,-1.6 4.3,-3.2"/></g></svg>';
       this.el = { svg: ui.board.querySelector('svg'), dot: ui.board.querySelector('.zz-dot'), trail: ui.board.querySelector('.mz-trail') };
       if (this.mine === this.driver) {
-        const L = [['▲', 'up'], ['◀', 'left'], ['▼', 'down'], ['▶', 'right']], idx = { up: 0, left: 3, down: 2, right: 1 };
+        const L = [[Ic.arrow('u'), 'up'], [Ic.arrow('l'), 'left'], [Ic.arrow('d'), 'down'], [Ic.arrow('r'), 'right']], idx = { up: 0, left: 3, down: 2, right: 1 };
         ui.ctl.innerHTML = '<div class="pad4">' + L.map(([ic, k]) => '<button type="button" class="hold ' + k + '" data-d="' + idx[k] + '"><b>' + ic + '</b></button>').join('') + '</div><p class="pad-tip">' + esc(t('coop.maze.tipMove')) + '</p>';
         ui.ctl.querySelectorAll('.hold').forEach(b => {
           const d = +b.dataset.d, on = e => { e.preventDefault(); this.press(d); b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (x) {} },
@@ -622,7 +624,7 @@ const Coop = (function () {
           b.addEventListener('pointerdown', on); ['pointerup', 'pointercancel', 'lostpointercapture', 'pointerleave'].forEach(ev => b.addEventListener(ev, off)); b.addEventListener('contextmenu', e => e.preventDefault());
         });
       } else if (map) {
-        ui.ctl.innerHTML = '<div class="say-dirs">' + MZ_DIRS.map((d, i) => '<button type="button" data-v="dir:' + d + '">' + MZ_ARROW[i] + ' ' + esc(t('coop.maze.' + MZ_NAME[i])) + '</button>').join('') + '</div><p class="pad-tip">' + esc(t('coop.maze.tipGuide')) + '</p>';
+        ui.ctl.innerHTML = '<div class="say-dirs">' + MZ_DIRS.map((d, i) => '<button type="button" data-v="dir:' + d + '">' + Ic.arrow(MZ_ARROW[i]) + ' ' + esc(t('coop.maze.' + MZ_NAME[i])) + '</button>').join('') + '</div><p class="pad-tip">' + esc(t('coop.maze.tipGuide')) + '</p>';
         ui.ctl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (this.playing) this.say(this.guide, b.dataset.v); }));
       }
     }
@@ -647,7 +649,6 @@ const Coop = (function () {
   // SESSION: the full-screen overlay (header, burning-fuse timer, board, role card, controls, quick-say, bubbles)
   // env = { rid, kind, seed, roles:{p1,p2}, me, sim:{role:level}, isAuth, names:{p1,p2} (HTML-safe), t, avatar(color),
   //         send(color,data), listen(cb)->unsub, onEnd(ok), sound(key), buzz(pattern) }
-  const CHAT_ICONS = ['✋', '👉', '⏳', '😱'];
   class Session {
     constructor(env) {
       const snd = env.sound, bz = env.buzz;                           // a sound / vibration error must never stop the minigame loop (then nobody could ever tap)
@@ -672,17 +673,17 @@ const Coop = (function () {
     build() {
       const env = this.env, t = this.t, root = document.getElementById('coop'), c1 = env.roles.p1, c2 = env.roles.p2, kind = env.kind; this.root = root;
       root.innerHTML = '<div class="coop-card" data-kind="' + kind + '"><div class="coop-head"><div class="coop-who"><span class="coop-av" style="--sc:var(--' + c1 + ')">' + env.avatar(c1) + '</span><b>' + env.names.p1 + '</b><span class="coop-amp">&amp;</span>' +
-        '<span class="coop-av" style="--sc:var(--' + c2 + ')">' + env.avatar(c2) + '</span><b>' + env.names.p2 + '</b></div><div class="coop-name">💣' + (this.level ? '🔥'.repeat(this.level) : '') + ' ' + esc(t('coop.title')) + ' · ' + esc(t('coop.games.' + kind + '.n')) + '</div></div>' +
+        '<span class="coop-av" style="--sc:var(--' + c2 + ')">' + env.avatar(c2) + '</span><b>' + env.names.p2 + '</b></div><div class="coop-name">' + Ic.svg('bomb') + Ic.flames(this.level) + ' ' + esc(t('coop.title')) + ' · ' + esc(t('coop.games.' + kind + '.n')) + '</div></div>' +
         '<div class="coop-fuse"><i></i><em></em></div><div class="coop-main"><div class="coop-board"></div><div class="coop-side"><div class="coop-role"></div><div class="coop-ctl"></div><div class="coop-chat"></div></div><div class="coop-bubbles"></div></div>' +
         '<div class="coop-over"><div class="coop-over-in"></div></div></div>';
       root.classList.add('open');
       this.ui = { root, board: this.q('.coop-board'), ctl: this.q('.coop-ctl'), side: this.q('.coop-side') };
       this.fuse = this.q('.coop-fuse'); this.fuseBar = this.fuse.firstChild; this.fuseTxt = this.fuse.lastChild; this.fuseKey = ''; this.hot = false;
       document.body.classList.add('coop-on');                          // freezes the table's animations behind the overlay (big win on phones)
-      const role = this.q('.coop-role'); role.innerHTML = this.mine ? '<span class="rl-dot" style="--sc:var(--' + env.roles[this.mine] + ')"></span>' + this.game.roleText() : '👀 ' + esc(t('coop.watching')) + '<br><small>' + this.game.roleText() + '</small>';
+      const role = this.q('.coop-role'); role.innerHTML = this.mine ? '<span class="rl-dot" style="--sc:var(--' + env.roles[this.mine] + ')"></span>' + this.game.roleText() : Ic.svg('eye') + ' ' + esc(t('coop.watching')) + '<br><small>' + this.game.roleText() + '</small>';
       this.game.build(this.ui);
       if (this.mine) {
-        const chat = this.q('.coop-chat'); chat.innerHTML = '<small>' + esc(t('coop.chatTitle')) + '</small><div>' + A(t('coop.chat')).map((s, i) => '<button type="button" data-i="' + i + '">' + esc(s) + '</button>').join('') + '</div>';
+        const chat = this.q('.coop-chat'); chat.innerHTML = '<small>' + esc(t('coop.chatTitle')) + '</small><div>' + A(t('coop.chat')).map((s, i) => '<button type="button" data-i="' + i + '">' + Ic.svg(CHAT_ICONS[i]) + esc(s) + '</button>').join('') + '</div>';
         chat.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (this.state === 'play') this.game.say(this.mine, 'chat:' + b.dataset.i); }));
       }
       this.showOver('<div class="co-game">' + esc(t('coop.games.' + kind + '.n')) + '</div><p>' + esc(t('coop.games.' + kind + '.d')) + '</p><div class="co-count">3</div>', 'intro');
@@ -701,7 +702,7 @@ const Coop = (function () {
     }
     sboNote(key, k, a) {                                              // banner on the board: who did what to the track
       const box = this.q('.coop-bubbles'); if (!box) return; const t = this.t, who = this.env.nameOf ? this.env.nameOf(key) : '', nm = who || t('coop.sb.anon');
-      const txt = k === 'rot' ? t(a < 0 ? 'coop.sb.didL' : 'coop.sb.didR', nm) : t(k === 'gum' ? 'coop.sb.didGum' : 'coop.sb.didInk', nm);
+      const ico = Ic.svg(k === 'rot' ? (a < 0 ? 'rotL' : 'rotR') : k), txt = ico + ' ' + (k === 'rot' ? t(a < 0 ? 'coop.sb.didL' : 'coop.sb.didR', nm) : t(k === 'gum' ? 'coop.sb.didGum' : 'coop.sb.didInk', nm));
       const el = document.createElement('div'); el.className = 'bub sb-note'; el.style.setProperty('--bc', 'var(--danger)'); el.innerHTML = txt; box.appendChild(el);
       while (box.children.length > 3) box.firstChild.remove(); setTimeout(() => { if (el.parentNode) el.remove(); }, 2600);
     }

@@ -52,8 +52,8 @@
     set('offline-hint', t('offlineHint')); set('btn-start-offline', t('startOffline')); set('online-off-note', t('onlineOff'));
     set('room-code-label', t('roomCodeShare')); set('seats-title', t('seats')); set('rules-title', t('houseRules')); set('rules-readonly-hint', t('hostOnly'));
     set('btn-leave-waiting', t('leave')); set('game-title', t('title')); set('btn-rules', t('rules')); set('btn-leave-game', t('leave')); set('btn-resume', t('resume'));
-    set('resume-title', t('lobbyResume')); set('btn-draw', t('draw'));
-    $('btn-sound').textContent = soundEnabled ? '🔊' : '🔇'; $('btn-sound').title = t('sound');
+    set('resume-title', t('lobbyResume')); set('btn-draw', t('draw')); document.querySelectorAll('.pile-ic').forEach(el => { el.innerHTML = Icon.svg('deck'); });
+    $('btn-sound').innerHTML = Icon.svg(soundEnabled ? 'speaker' : 'mute'); $('btn-sound').title = t('sound');
     document.title = t('title');
   }
   function rerender() { const r = room(); if (!r) return; if (r.status === 'lobby') renderWaiting(r); else { U.handSig = null; U.barKey = null; U.chips = {}; $('opps').innerHTML = ''; renderGame(r, null); } }
@@ -74,7 +74,7 @@
         '<div class="seat-av">' + CatArt.avatarSVG(c) + '</div><div class="seat-body"><div class="seat-color">' + esc(t('colors.' + c)) + '</div>';
       if (s) {
         h += '<div class="seat-name">' + esc(seatLabel(r, c)) + '</div><div class="seat-tags">' +
-          (r.hostUid === s.uid || (local && !s.bot) ? '<span class="tag">' + t('host') + '</span>' : '') + (s.bot ? '<span class="tag">' + t('bot') + '</span>' : '') + (me === c ? '<span class="tag you">' + t('you') + '</span>' : '') + (tmap[c] ? '<span class="tag team-' + tmap[c] + '">⛵ ' + esc(t('teamNames.' + tmap[c])) + '</span>' : '') +
+          (r.hostUid === s.uid || (local && !s.bot) ? '<span class="tag">' + t('host') + '</span>' : '') + (s.bot ? '<span class="tag">' + t('bot') + '</span>' : '') + (me === c ? '<span class="tag you">' + t('you') + '</span>' : '') + (tmap[c] ? '<span class="tag team-' + tmap[c] + '">' + Icon.svg('sail') + ' ' + esc(t('teamNames.' + tmap[c])) + '</span>' : '') +
           (!s.bot && !s.local && s.connected === false ? '<span class="tag off">offline</span>' : '') + '</div>';
         if (s.bot && host) {
           h += '<div class="seat-ctl"><span class="seg">' + M.BOT_LEVELS.map(l => '<button type="button" class="seg-btn' + (Net.botLevel(s) === l ? ' on' : '') + '" data-act="lvl" data-color="' + c + '" data-val="' + l + '">' + t('level.' + l) + '</button>').join('') +
@@ -101,6 +101,7 @@
       '<div class="rule-row"><div><b>' + t('set.hand') + '</b><p class="muted">' + t('set.handHint') + '</p></div><span class="stepper"><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="-1"' + dis + '>−</button><b>' + s.hand + '</b><button type="button" class="seg-btn" data-act="step" data-key="hand" data-d="1"' + dis + '>+</button></span></div>' +
       '<div class="rule-row"><div><b>' + t('set.combos') + '</b><p class="muted">' + t('set.combosHint') + '</p></div>' + seg('combos', [true, false], s.combos, v => v ? t('set.on') : t('set.off')) + '</div>' +
       '<div class="rule-row"><div><b>' + t('set.cloneAny') + '</b><p class="muted">' + t('set.cloneAnyHint') + '</p></div>' + seg('cloneAny', [true, false], s.cloneAny, v => v ? t('set.on') : t('set.off')) + '</div>' +
+      '<div class="rule-row"><div><b>' + t('set.dodgeAtk') + '</b><p class="muted">' + t('set.dodgeAtkHint') + '</p></div>' + seg('dodgeAtk', [true, false], s.dodgeAtk, v => v ? t('set.on') : t('set.off')) + '</div>' +
       '<div class="rule-row"><div><b>' + t('set.mode') + '</b><p class="muted">' + t('set.modeHint') + '</p></div>' + seg('mode', M.MODES, s.mode, v => t('set.' + v)) + '</div>' +
       (s.mode === 'team' ? '<div class="rule-row sub"><div><b>' + t('set.coop') + '</b><p class="muted">' + t('set.coopHint') + '</p></div>' + seg('coop', M.COOP_TRIGGERS, s.coop, v => t(v === 'always' ? 'set.coopAlways' : 'set.coopNoDefuse')) + '</div>' +
         '<div class="rule-row sub"><div><b>' + t('set.coopGhost') + '</b><p class="muted">' + t('set.coopGhostHint') + '</p></div>' + seg('coopGhost', [true, false], s.coopGhost, v => v ? t('set.on') : t('set.off')) + '</div>' +
@@ -114,7 +115,7 @@
     const g = r.g, s = r.seats[c];
     return [nm(r, c), g.hands[c].length, g.alive[c] ? 1 : 0, g.turn === c && g.phase !== 'over' ? 1 : 0, g.turn === c ? g.left : 0, s && s.bot ? 1 : 0, s && !s.bot && !s.local && s.connected === false ? 1 : 0, LANG].join('|');
   }
-  const teamTag = (g, c) => g.teams && g.teams[c] ? ' <span class="tag team-' + g.teams[c] + '">⛵' + g.teams[c] + '</span>' : '';
+  const teamTag = (g, c) => g.teams && g.teams[c] ? ' <span class="tag team-' + g.teams[c] + '">' + Icon.svg('sail') + g.teams[c] + '</span>' : '';
   const allyOf = (g, a, b) => !!g.teams && a !== b && g.teams[a] === g.teams[b];
   function chipHTML(r, c) {
     const g = r.g, s = r.seats[c], alive = g.alive[c], turn = g.turn === c && g.phase !== 'over';
@@ -182,7 +183,7 @@
     if (p.kind === 'triple') return t('log.playTriple', n, cname(p.kinds[0]), tg, cname(p.name));
     if (p.kind === 'five') return t('log.playFive', n, cname(p.name));
     if (p.kind === 'favor') return t('log.playFavor', n, cname('favor'), tg);
-    if (p.kind === 'clone') { const w = ['pair', 'triple', 'five'].indexOf(p.copy) >= 0 ? t('cards.' + p.copy) : cname(p.copy); return t('log.playClone', n, cname('clone'), w) + (tg ? ' → ' + tg : '') + (p.name ? ' (' + cname(p.name) + ')' : ''); }
+    if (p.kind === 'clone') { const w = cname(p.copy); return t('log.playClone', n, cname('clone'), w) + (tg ? ' → ' + tg : '') + (p.name ? ' (' + cname(p.name) + ')' : ''); }
     return t('log.play1', n, cname(p.kind));
   }
   function renderBar(r, me) {
@@ -272,6 +273,7 @@
   function onCardClick(kind, i, dbl) {
     const r = room(); if (!r || !r.g) return; const g = r.g, me = myColor(r);
     if (!me || !g.alive[me]) return;
+    if (kind === 'clone' && M.cloneDefuse(g, me) && !M.cloneMode(g, me)) { toast(t('cloneDefuseHint')); playSound('error'); return; }       // the last card was a Defuse: the Clone waits for a bomb
     if (g.phase === 'pending') { if (kind === 'nope' && M.canNope(g, me)) doNope(); else if (kind === 'clone') reactClone(); return; }
     if (g.phase !== 'play' || g.turn !== me) { if (g.phase === 'play' && kind === 'clone' && M.cloneMode(g, me)) reactClone(); else playSound('error'); return; }   // cloneAny: a Clone can also be played on somebody else's turn
     const cur = U.sel, keys = Object.keys(cur), isCat = M.CATS.indexOf(kind) >= 0;
@@ -282,15 +284,16 @@
     renderHand(r, me); updateActions(r, me);
   }
   function comboAdd(g, cur, kind) {
-    const wild = M.wildCat(g), ok = k => M.CATS.indexOf(k) >= 0 || (k === 'clone' && !!wild);
+    const ok = k => M.CATS.indexOf(k) >= 0 || k === 'clone';                                  // a Clone is a wildcard: it may replace ONE cat of a pair / triple / five
     if (!ok(kind) || !Object.keys(cur).every(ok)) return false;
     const n = Object.assign({}, cur); n[kind] = (n[kind] || 0) + 1;
     const total = Object.keys(n).reduce((a, k) => a + n[k], 0), cats = Object.keys(n).filter(k => k !== 'clone');
+    if ((n.clone || 0) > 1) return false;
     return (cats.length <= 1 && total <= 3) || (cats.every(k => n[k] === 1) && total <= 5);
   }
   function playSelected() {
     const r = room(); if (!r || !r.g) return; const g = r.g, me = myColor(r), kinds = selKinds();
-    if (!me || !selValid(r, me)) { playSound('error'); return; }
+    if (!me || !selValid(r, me)) { if (me && kinds.length === 1 && M.lockedUnderAttack(g, me, kinds[0])) toast(t(kinds[0] === 'attack' ? 'attackLockedAtk' : 'attackLockedSkip')); playSound('error'); return; }
     if (M.needsPick(g, kinds)) return openRecover(r, kinds);
     if (!M.needsTarget(kinds, g)) return sendPlay(kinds, {});
     const tg = M.targetsFor(g, me, kinds);                          // Xin Xỏ (also via Nhân Bản) may ask your teammate too
@@ -423,7 +426,7 @@
 
   // ---------------------------------------------------------------------------------------------------------------
   // log
-  const flames = h => h > 0 ? ' ' + '🔥'.repeat(Math.min(3, h)) : '';       // bomb heat shown next to its banner / log line
+  const flames = h => h > 0 ? ' ' + Icon.flames(h) : '';       // bomb heat shown next to its banner / log line
   function fmtLog(r, e, me) {
     const n = e.by ? nm(r, e.by) : '';
     if (e.k === 'fizzle' && e.calm) return { x: t('log.calm', n), c: '' };
@@ -435,7 +438,9 @@
       case 'bomb': return { x: t('log.bomb', n) + flames(e.heat), c: 'danger' };
       case 'scorch': return { x: t('log.scorch', n), c: 'danger' };
       case 'hotdeck': return { x: t('log.hotdeck'), c: 'danger' };
-      case 'attack': case 'skip': case 'shuffle': case 'future': case 'draw': case 'defuse': case 'reinsert': case 'explode': case 'win': case 'fizzle': return { x: t('log.' + e.k, n), c: e.k === 'bomb' || e.k === 'explode' ? 'danger' : (e.k === 'defuse' || e.k === 'win' ? 'good' : '') };
+      case 'cloneCat': return { x: t('log.cloneCat', n, cname(e.card)), c: 'good' };
+      case 'defuse': return { x: t(e.clone ? 'log.defuseClone' : 'log.defuse', n), c: 'good' };
+      case 'attack': case 'skip': case 'shuffle': case 'future': case 'draw': case 'reinsert': case 'explode': case 'win': case 'fizzle': return { x: t('log.' + e.k, n), c: e.k === 'bomb' || e.k === 'explode' ? 'danger' : (e.k === 'defuse' || e.k === 'win' ? 'good' : '') };
       case 'favor': return { x: t('log.favor', n, nm(r, e.target)), c: '' };
       case 'give': return { x: t('log.give', nm(r, e.from), n, null), c: '' };
       case 'steal': return { x: t('log.steal', n, nm(r, e.from), null), c: 'play' };
@@ -497,6 +502,7 @@
       case 'steal': playSound('steal'); FX.fly(anchor(e.from, me), e.by === me ? slot(me) : anchor(e.by, me), backCard(), { w: 60, d: 420 });
         if (e.by === me) setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350);
         else if (e.from === me) toast(t('stolen', cname(e.card), nm(r, e.by))); break;
+      case 'cloneCat': playSound('cardReceive'); if (e.by === me) setTimeout(() => toast(t('got', cname(e.card))), 250); break;
       case 'recover': playSound('steal'); FX.fly($('discard-pile'), e.by === me ? slot(me) : anchor(e.by, me), cardHTML(e.card), { w: 60, d: 420 });
         if (e.by === me) setTimeout(() => { playSound('cardReceive'); toast(t('got', cname(e.card))); }, 350); break;
       case 'miss': case 'fizzle': playSound('stealMiss'); break;
@@ -609,7 +615,7 @@
   }
   function onRoomChange(r, prev) {
     if (!r) { if (U.screen === 'waiting' || U.screen === 'game') { toast(t('noRoom')); leaveToLobby(true); } return; }
-    if (Net.S.mode === 'online') rememberRoom(Net.S.code);
+    if (Net.S.mode === 'online') { rememberRoom(Net.S.code); if (location.hash.replace('#', '') !== Net.S.code) { try { history.replaceState(null, '', location.pathname + '#' + Net.S.code); } catch (e) {} } }   // the address bar always names the room: refresh / back-forward lands in the same place
     if (r.status === 'lobby') {
       if (U.screen === 'game') { closeModal(); resetGameUI(); }
       if (U.screen !== 'waiting') { closeModal(); showScreen('waiting'); }
@@ -713,9 +719,23 @@
     buildLangSelects(); applyStaticText(); wire();
     Net.onChange = onRoomChange;
     if (!Net.ONLINE_OK) $('online-off-note').style.display = '';
-    showScreen('lobby'); paintResume();
+    // A refresh must put the player back exactly where they were (lobby, waiting room or the table in the middle of a match):
+    //   1) an unfinished OFFLINE game is restored from localStorage;  2) an online room is re-entered from the saved code (or the #CODE of the address).
+    // Until the room answers a spinner is shown; if it is gone the normal lobby appears.
     const code = inviteCode();
-    if (code) { document.querySelector('[data-tab="join"]').click(); $('input-room-code').value = code; }
+    if (!code && Net.restoreLocal()) return;
+    let saved = null; try { saved = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (e) {}
+    const want = code || (saved && saved.code && Date.now() - saved.ts < 12 * 36e5 ? saved.code : '');
+    const toLobby = () => { showScreen('lobby'); paintResume(); if (code) { document.querySelector('[data-tab="join"]').click(); $('input-room-code').value = code; } };
+    if (want && Net.ONLINE_OK) {
+      showScreen('loading');
+      const timeout = new Promise(res => setTimeout(() => res(null), 8000));
+      Promise.race([Net.tryRejoin(want, true), timeout]).then(ok => {
+        if (ok) return;                                              // onRoomChange has already switched to waiting / game
+        if (!code) forgetRoom();
+        toLobby();
+      }).catch(toLobby);
+    } else toLobby();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

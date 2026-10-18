@@ -315,3 +315,20 @@ svg.zz.crash .zz-bg{ fill:#5a1626; } svg.zz.crash{ animation:shake .35s linear; 
 /* while the minigame is open the table behind it is frozen: nothing animates, nothing repaints */
 body.coop-on{ background:#06242e; } body.coop-on #screen-game{ visibility:hidden; } body.coop-on #screen-game *{ animation:none !important; transition:none !important; }
 .coop-card .hold,.coop-card .wire,.coop-card .slot,.coop-card button{ -webkit-touch-callout:none; touch-action:manipulation; } .coop-card .hold{ touch-action:none; }
+
+/* polygon icons (js/icons.js): sized by the font, tinted by currentColor */
+.ic{ width:1.1em; height:1.1em; display:inline-block; vertical-align:-.2em; flex:none; }
+.icon-btn .ic{ width:1.35em; height:1.35em; vertical-align:-.3em; } .pile-ic .ic{ width:1.2em; height:1.2em; }
+.coop-name .ic{ width:1.25em; height:1.25em; vertical-align:-.28em; margin-right:1px; } .coop-role .ic{ width:1.2em; height:1.2em; }
+.bub .ic{ width:1.35em; height:1.35em; vertical-align:middle; } .bub.sb-note .ic{ color:#ffd166; }
+.pad .hold b,.pad4 .hold b{ display:flex; } .pad .hold b .ic{ width:2.1rem; height:2.1rem; } .pad4 .hold b .ic{ width:1.9rem; height:1.9rem; }
+.say-dirs button .ic{ width:1.15em; height:1.15em; vertical-align:-.2em; margin-right:2px; } .say-dir .ic{ width:1.15em; height:1.15em; }
+.sb h4 .ic{ color:#ffd166; width:1.2em; height:1.2em; } .sb-b b{ display:flex; } .sb-b b .ic{ width:1.7rem; height:1.7rem; } .sb-b:disabled b{ opacity:.55; }
+.manual h4 .ic{ width:1.3em; height:1.3em; vertical-align:-.28em; } .manual .tell .ic{ width:1.45rem; height:1.45rem; vertical-align:middle; }
+.w-strikes .ic{ width:1.25em; height:1.25em; } .w-strikes span{ display:inline-flex; vertical-align:middle; }
+.coop-chat button .ic{ width:1.25em; height:1.25em; vertical-align:-.25em; margin-right:3px; }
+.tag .ic{ width:1em; height:1em; vertical-align:-.15em; margin-right:2px; }
+.pop-label .ic,.big-banner .ic,.log-line .ic{ width:1.15em; height:1.15em; vertical-align:-.2em; margin-left:2px; }
+.manual .w-strikes .ic{ filter:drop-shadow(0 0 .7px #6d5a3a) drop-shadow(0 0 .7px #6d5a3a); }
+.pad4 .hold{ background:var(--accent); color:#2a0d07; border:0; cursor:pointer; touch-action:none; display:flex; align-items:center; justify-content:center; --c:12px; clip-path:polygon(var(--c) 0,100% 0,100% calc(100% - var(--c)),calc(100% - var(--c)) 100%,0 100%,0 var(--c)); }
+.pad4 .hold.on{ background:var(--accent-2); color:#06302a; transform:scale(.97); }

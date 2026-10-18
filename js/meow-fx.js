@@ -49,7 +49,7 @@ const FX = (function () {
   function banner(text, cls) {
     if (hidden() || !layer()) return;
     const el = document.createElement('div');
-    el.className = 'big-banner ' + (cls || ''); el.textContent = text;
+    el.className = 'big-banner ' + (cls || ''); el.innerHTML = text;     // text = translated string + escaped names (+ icons)
     layer().appendChild(el); safety(el);
     if (reduce()) { setTimeout(() => el.remove(), 1200); return; }
     const an = el.animate([

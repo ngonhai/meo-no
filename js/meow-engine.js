@@ -21,7 +21,7 @@ const Meow = (function () {
   const bombCard = h => h > 0 ? 'bomb' + Math.min(MAX_HEAT, h) : 'bomb';
   const baseKind = k => isBomb(k) ? 'bomb' : k;
   const COOP_GAMES = ['zigzag', 'wires', 'lock', 'maze'];       // the cooperative defuse minigames (see js/meow-coop.js)
-  const DEFAULT_SETTINGS = { nopeSec: 5, hand: 7, combos: true, mode: 'solo', coop: 'nodefuse', coopGhost: false, bombHeat: true, suddenBomb: true, cloneAny: false };
+  const DEFAULT_SETTINGS = { nopeSec: 5, hand: 7, combos: true, mode: 'solo', coop: 'nodefuse', coopGhost: false, bombHeat: true, suddenBomb: true, cloneAny: false, dodgeAtk: false };
   const NOPE_SECS = [3, 5, 8, 12];
 
   function normalizeSettings(s) {
@@ -32,6 +32,7 @@ const Meow = (function () {
     s.mode = MODES.indexOf(s.mode) >= 0 ? s.mode : 'solo';
     s.coop = COOP_TRIGGERS.indexOf(s.coop) >= 0 ? s.coop : 'nodefuse';
     s.bombHeat = s.bombHeat !== false; s.suddenBomb = s.suddenBomb !== false;   // team mode anti-stalemate rules (see README)
+    s.dodgeAtk = s.dodgeAtk === true;                  // Attack: false = while you are attacked you can neither Attack nor Skip; true = a Skip may still cancel ONE of the owed turns per card
     s.cloneAny = s.cloneAny === true;                  // Clone: false = only on your own turn, true = also as a reaction while a card is pending
     s.coopGhost = s.coopGhost === true;                // team mode: an already-exploded teammate may still help with the defuse minigame
     return s;
@@ -70,7 +71,7 @@ const Meow = (function () {
     const teams = team ? { [order[0]]: 'A', [order[1]]: 'B', [order[2]]: 'A', [order[3]]: 'B' } : null;   // teammates sit opposite each other
     return { v: 0, pid: 0, order, alive, hands, deck, discard: [], turn: order.indexOf(first) >= 0 ? first : order[0], left: 1,
              phase: 'play', pending: null, give: null, reins: null, rescue: null, peek: null, winner: null, winTeam: null,
-             mode: team ? 'team' : 'solo', coop: settings.coop, coopGhost: settings.coopGhost, teams, lastCoop: null, cloneAny: !!settings.cloneAny, last: null, lastCat: null, giveQ: [], heatOn: !!(team && settings.bombHeat), suddenOn: !!(team && settings.suddenBomb), bheat: 0, extra: 0, log: [], ev: [] };
+             mode: team ? 'team' : 'solo', coop: settings.coop, coopGhost: settings.coopGhost, teams, lastCoop: null, cloneAny: !!settings.cloneAny, dodgeAtk: !!settings.dodgeAtk, last: null, lastCat: null, giveQ: [], heatOn: !!(team && settings.bombHeat), suddenOn: !!(team && settings.suddenBomb), bheat: 0, extra: 0, log: [], ev: [] };
   }
   // ---- teams (2v2) ------------------------------------------------------------------------------------
   const teamOf = (g, c) => (g && g.teams && g.teams[c]) || null;
@@ -127,6 +128,14 @@ const Meow = (function () {
     g.deck = shuffle(back); g.peek = null;
   }
 
+  // Nhân Bản also copies a DEFUSE: a Defuse is used (not "played") when a bomb is drawn, and it counts as the card played last (g.last = 'defuse').
+  // As long as that is still the last card, a Clone in hand acts as a Defuse for whoever draws a bomb next (a real Defuse is used first).
+  const cloneDefuse = (g, c) => !!g && g.last === 'defuse' && !!g.alive[c] && cnt(g.hands[c], 'clone') > 0;
+  function useDefuse(g, c) {                                       // -> 'defuse' | 'clone' | null (nothing to use)
+    if (removeOne(g.hands[c], 'defuse')) { g.discard.push('defuse'); g.last = 'defuse'; g.lastCat = null; return 'defuse'; }
+    if (cloneDefuse(g, c)) { removeOne(g.hands[c], 'clone'); g.discard.push('clone'); return 'clone'; }       // last stays 'defuse': a Clone of a Clone copies the same card
+    return null;
+  }
   function draw(g, c) {
     if (g.phase !== 'play' || g.turn !== c || !g.alive[c]) return null;
     startAction(g); ensureDeck(g);
@@ -135,11 +144,12 @@ const Meow = (function () {
     if (isBomb(card)) {
       g.bheat = g.heatOn ? heatOf(card) : 0;
       logEv(g, { k: 'bomb', by: c, heat: g.bheat });
-      const hasDef = cnt(g.hands[c], 'defuse') > 0, mate = g.teams ? (aliveMate(g, c) || (g.coopGhost ? mateOf(g, c) : null)) : null;   // dead teammate helps only if the lobby rule allows it
+      const hasDef = cnt(g.hands[c], 'defuse') > 0 || cloneDefuse(g, c), mate = g.teams ? (aliveMate(g, c) || (g.coopGhost ? mateOf(g, c) : null)) : null;   // dead teammate helps only if the lobby rule allows it
       const wants = !!mate && (g.coop === 'always' || !hasDef), tooHot = !!g.heatOn && g.bheat >= MAX_HEAT;
       if (wants && tooHot) logEv(g, { k: 'scorch', by: c });                                             // too hot for a minigame: classic rules
       if (wants && !tooHot) { startRescue(g, c, mate, hasDef); return g; }   // 2v2: the boat defuses together
-      if (removeOne(g.hands[c], 'defuse')) { g.discard.push('defuse'); g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c }); }
+      const used = useDefuse(g, c);
+      if (used) { g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c, clone: used === 'clone' ? 1 : 0 }); }
       else eliminate(g, c);
       return g;
     }
@@ -165,7 +175,8 @@ const Meow = (function () {
     const r = g.rescue, c = r.by; g.rescue = null;
     if (ok) { logEv(g, { k: 'rescued', by: c, mate: r.mate, kept: r.hasDef && g.coop === 'always' ? 1 : 0 }); g.phase = 'reinsert'; g.reins = { by: c }; return g; }
     logEv(g, { k: 'rescueFail', by: c, mate: r.mate });
-    if (r.hasDef && removeOne(g.hands[c], 'defuse')) { g.discard.push('defuse'); g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c }); }
+    const used = r.hasDef ? useDefuse(g, c) : null;
+    if (used) { g.phase = 'reinsert'; g.reins = { by: c }; logEv(g, { k: 'defuse', by: c, clone: used === 'clone' ? 1 : 0 }); }
     else eliminate(g, c);
     return g;
   }
@@ -188,10 +199,17 @@ const Meow = (function () {
   function recoverCounts(g, extra) { const n = {}; g.discard.concat(extra || []).forEach(k => { if (!isBomb(k)) n[k] = (n[k] || 0) + 1; }); return n; }
   const recoverable = (g, extra) => { const n = recoverCounts(g, extra); return STEALABLE.filter(k => n[k] > 0); };
   const isFive = kinds => !!kinds && kinds.length === 5 && CATS.every(k => kinds.indexOf(k) >= 0);
-  // A Clone can also stand in for a cat card inside a combo: it counts as the cat that was played last (the cat of the latest pair / triple).
-  // After a five (all cats at once) or any non-cat card there is no such cat, so it can't join a combo until the next pair / triple.
-  const wildCat = g => (g && (g.last === 'pair' || g.last === 'triple') && CATS.indexOf(g.lastCat) >= 0) ? g.lastCat : null;
-  const effKinds = (g, kinds) => kinds.map(k => k === 'clone' ? wildCat(g) : k);
+  // A Clone is a WILDCARD inside a combo: it replaces ONE cat card of a pair (Clone + X), a triple (Clone + X + X) or a five (Clone + 4 different cats = the missing one).
+  // effKinds() gives the cards as the combo sees them (the Clone replaced by the cat it stands for); an entry is null when the combo is not valid (e.g. two Clones, or no real cat).
+  function effKinds(g, kinds) {
+    const nc = kinds.filter(k => k === 'clone').length; if (!nc) return kinds.slice();
+    const real = kinds.filter(k => k !== 'clone'); let fill = null;
+    if (nc === 1 && real.every(k => CATS.indexOf(k) >= 0)) {
+      if (kinds.length === 5) { if (new Set(real).size === 4) fill = CATS.find(k => real.indexOf(k) < 0) || null; }
+      else if (real.length >= 1 && real.every(k => k === real[0])) fill = real[0];
+    }
+    return kinds.map(k => k === 'clone' ? fill : k);
+  }
   function needsTarget(kinds, g) { const k = (kinds.length === 1 && kinds[0] === 'clone') ? cloneKind(g) : kindOf(kinds); return k === 'favor' || k === 'pair' || k === 'triple'; }
   // Xin Xỏ may also ask your TEAMMATE (it is a gift, not a theft); steals still never hit an ally.
   function favorTargets(g, c) { return aliveList(g).filter(o => o !== c && g.hands[o].length > 0); }
@@ -200,10 +218,14 @@ const Meow = (function () {
   // Nhân Bản copies ANY card that was played last (never a bomb). While a Nope lies on top of the table the card played last IS that Nope (a Clone then acts as one more Nope);
   // once the window is over the Noped card is still the one a Clone copies. Defuse is never "played" (it is only used when a bomb is drawn) and cat cards only act in combos.
   // Tempo: a Clone never changes whose turn it is. Attack / Skip copies only move the turn when the Clone was played on its owner's own turn (see applyEffect).
-  const COPYABLE = ['attack', 'skip', 'shuffle', 'future', 'favor', 'pair', 'triple', 'five', 'nope'];
+  // A Clone played ALONE turns into the card played last (g.last = the most recent card played in the whole match, whoever played it and whenever, not tied to turns or targets):
+  //   an action card -> that action; a Nope on the table -> one more Nope; a Defuse -> a Defuse for the next bomb;
+  //   a pair / triple -> ONE cat card of that combo (the Clone becomes that cat in your hand, instantly, to be used in your own combos); a five -> ONE random cat of the five.
+  const COPYABLE = ['attack', 'skip', 'shuffle', 'future', 'favor', 'nope'], COMBOS = ['pair', 'triple', 'five'];
   const cloneKind = g => {
     if (!g) return null;
     if (g.phase === 'pending' && g.pending && g.pending.nopes.length) return 'nope';
+    if (g.last && COMBOS.indexOf(g.last) >= 0) return 'cat';
     return (g.last && COPYABLE.indexOf(g.last) >= 0 && g.last !== 'nope') ? g.last : null;
   };
   const effKind = (g, kinds) => (kinds.length === 1 && kinds[0] === 'clone') ? cloneKind(g) : kindOf(kinds);
@@ -218,15 +240,16 @@ const Meow = (function () {
     if (g.phase === 'pending' && g.pending && g.cloneAny) return 'react';
     return null;
   }
+  // Under attack (the running player still owes more than one turn): the Attack card can't be used to pass the attack on, and a Skip ("Né") only works with the lobby rule `dodgeAtk` (each Skip then cancels ONE owed turn).
+  const underAttack = (g, c) => !!g && g.turn === c && g.left > 1;
+  const lockedUnderAttack = (g, c, kind) => underAttack(g, c) && (kind === 'attack' || (kind === 'skip' && !g.dodgeAtk));
   function canClone(g, c, opts) {
     opts = opts || {}; if (!cloneMode(g, c)) return false;
-    const k = cloneKind(g);
+    const k = cloneKind(g); if (lockedUnderAttack(g, c, k)) return false;
     if (k === 'favor') return favorTargets(g, c).indexOf(opts.target) >= 0;
-    if (k === 'pair' || k === 'triple') { if (validTargets(g, c).indexOf(opts.target) < 0) return false; if (k === 'triple' && STEALABLE.indexOf(opts.name) < 0) return false; }
-    if (k === 'five') return recoverable(g, ['clone']).indexOf(opts.name) >= 0;
     return true;
   }
-  function cloneReady(g, c) { const m = cloneMode(g, c); return !!m && (targetsFor(g, c, ['clone']).length > 0 || ['pair', 'triple', 'favor'].indexOf(cloneKind(g)) < 0); }
+  function cloneReady(g, c) { const m = cloneMode(g, c); return !!m && (targetsFor(g, c, ['clone']).length > 0 || cloneKind(g) !== 'favor'); }
   function playClone(g, c, opts) {
     startAction(g); opts = opts || {};
     const k = cloneKind(g), own = g.turn === c;                     // `own`: was it the Clone owner's turn when it was played? (decides whether a copied Attack / Skip may move the turn)
@@ -236,7 +259,12 @@ const Meow = (function () {
       logEv(g, { k: 'nope', by: c, n: p.nopes.length, clone: 1 });
       return g;
     }
-    const tgt = (k === 'favor' || k === 'pair' || k === 'triple') ? opts.target : null, name = (k === 'triple' || k === 'five') ? opts.name : null;
+    if (k === 'cat') {                                              // a copied combo: the Clone becomes ONE cat card of it (random for a five). No Nope window, nobody's turn changes.
+      const cat = g.last === 'five' ? CATS[Math.floor(Math.random() * CATS.length)] : (CATS.indexOf(g.lastCat) >= 0 ? g.lastCat : CATS[0]);
+      g.discard.pop(); g.hands[c].push(cat); logEv(g, { k: 'cloneCat', by: c, card: cat });
+      return g;
+    }
+    const tgt = k === 'favor' ? opts.target : null, name = null;
     logEv(g, { k: 'play', by: c, kinds: ['clone'], kind: 'clone', copy: k, target: tgt || null, name: name || null });
     if (g.phase === 'pending') {                                    // reaction: the card on the table goes UNDER, the clone is now the top of the stack (Nopes hit the top)
       const p = g.pending;
@@ -259,6 +287,7 @@ const Meow = (function () {
     if (Object.keys(need).some(k => cnt(h, k) < need[k])) return false;
     if (kinds.length === 1) {
       if (ACTIONS.indexOf(kinds[0]) < 0) return false;
+      if (lockedUnderAttack(g, c, kinds[0])) return false;
       if (kinds[0] === 'favor') return favorTargets(g, c).indexOf(opts.target) >= 0;
       return true;
     }
@@ -277,7 +306,7 @@ const Meow = (function () {
     const ek = effKinds(g, kinds);
     kinds.forEach(k => { removeOne(g.hands[c], k); g.discard.push(k); });
     g.pid++;
-    g.phase = 'pending'; g.last = kindOf(kinds); g.lastCat = (kinds.length === 2 || kinds.length === 3) ? ek[0] : null;
+    g.phase = 'pending'; g.last = kindOf(kinds); g.lastCat = (kinds.length === 2 || kinds.length === 3) ? (ek.find(k => k && k !== 'clone') || null) : null;
     g.pending = { pid: g.pid, by: c, kinds: kinds.slice(), kind: kindOf(kinds), target: needsTarget(kinds, g) ? opts.target : null, name: (kinds.length === 3 || kinds.length === 5) ? opts.name : null, own: true, nopes: [], passes: {}, n: 0, under: [] };
     logEv(g, { k: 'play', by: c, kinds: kinds.slice(), kind: g.pending.kind, target: g.pending.target || null, name: g.pending.name || null });
     return g;
@@ -388,8 +417,8 @@ const Meow = (function () {
   // One decision while it is `c`'s turn (phase 'play'): {t:'play', kinds, opts} or {t:'draw'}
   function botPlay(g, c, level) {
     level = BOT_LEVELS.indexOf(level) >= 0 ? level : 'normal';
-    const h = g.hands[c], has = k => cnt(h, k) > 0, pb = bombProb(g), top = level === 'easy' ? null : knownTop(g, c);
-    const defuses = cnt(h, 'defuse');
+    const h = g.hands[c], has = k => cnt(h, k) > 0 && !lockedUnderAttack(g, c, k), pb = bombProb(g), top = level === 'easy' ? null : knownTop(g, c);
+    const defuses = cnt(h, 'defuse') + (cloneDefuse(g, c) ? 1 : 0);
     const risky = (pb > THRESH[level] && defuses === 0) || (pb > 0.5 && level !== 'easy');
     const play = (kinds, opts) => ({ t: 'play', kinds, opts: opts || {} });
     if (top === 'bomb' && defuses === 0) {
@@ -405,8 +434,8 @@ const Meow = (function () {
     }
     const ck = cloneKind(g);                                         // Nhân Bản: bots copy the last card when it helps them
     if (level !== 'easy' && ck && has('clone')) {
-      const o = (ck === 'favor' || ck === 'pair' || ck === 'triple' || ck === 'five') ? { target: bestTarget(g, c), name: ck === 'five' ? bestRecover(g, ['clone']) : ['defuse', 'nope', 'skip', 'attack'][Math.floor(Math.random() * 4)] } : {};
-      if (canClone(g, c, o) && ((risky && (ck === 'skip' || ck === 'attack')) || (ck === 'future' && !top && g.deck.length > 3) || (ck === 'five' && Math.random() < 0.7) || ((ck === 'favor' || ck === 'pair' || ck === 'triple') && Math.random() < 0.4))) return play(['clone'], o);
+      const o = ck === 'favor' ? { target: bestTarget(g, c) } : {};
+      if (canClone(g, c, o) && ((risky && (ck === 'skip' || ck === 'attack')) || (ck === 'future' && !top && g.deck.length > 3) || (ck === 'favor' && Math.random() < 0.4))) return play(['clone'], o);
     }
     if (level !== 'easy' && CATS.every(has) && Math.random() < (level === 'hard' ? 0.9 : 0.6)) return play(CATS.slice(), { name: bestRecover(g, CATS) });     // five different cats -> the best card in the discard pile
     if (level !== 'easy' && has('future') && !top && Math.random() < 0.7 && g.deck.length > 3) return play(['future']);
@@ -451,7 +480,7 @@ const Meow = (function () {
   }
 
   return { COLORS, CATS, ACTIONS, COUNTS, STEALABLE, BOT_LEVELS, DEFAULT_SETTINGS, NOPE_SECS, MODES, MAX_HEAT, isBomb, heatOf, COOP_TRIGGERS, COOP_GAMES, normalizeSettings, normalize, newGame, aliveList, nextAlive, nextFoe, cnt,
-           teamOf, isAlly, mateOf, previewTeams, rescueEnd, draw, reinsert, canPlay, play, canNope, nopeAllowed, nope, nopedPlayer, favorTargets, targetsFor, needsName, cloneKind, cloneReady, cloneMode, pass, allPassed, resolve, giveCard, needsTarget, needsPick, wildCat, validTargets, kindOf, bombProb, recoverable, recoverCounts, isFive,
+           teamOf, isAlly, mateOf, previewTeams, rescueEnd, draw, reinsert, canPlay, play, canNope, nopeAllowed, nope, nopedPlayer, favorTargets, targetsFor, needsName, cloneKind, cloneReady, cloneMode, cloneDefuse, effKinds, underAttack, lockedUnderAttack, pass, allPassed, resolve, giveCard, needsTarget, needsPick,  validTargets, kindOf, bombProb, recoverable, recoverCounts, isFive,
            botPlay, botReact, botGive, botReinsert, shuffle };
 })();
 if (typeof module !== 'undefined') module.exports = Meow;

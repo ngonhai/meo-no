@@ -38,8 +38,37 @@ for (let n = 2; n <= 5; n++) for (let r = 0; r < 60; r++) {
   g.hands.coral = ['attack', 'cat1']; g.hands.mint = ['attack', 'cat2']; g.hands.sky = ['cat3'];
   M.play(g, 'coral', ['attack'], {}); M.resolve(g, g.pending.pid, 0);
   assert.strictEqual(g.turn, 'mint'); assert.strictEqual(g.left, 2);
-  M.play(g, 'mint', ['attack'], {}); M.resolve(g, g.pending.pid, 0);
-  assert.strictEqual(g.turn, 'sky'); assert.strictEqual(g.left, 3);
+  assert.strictEqual(M.play(g, 'mint', ['attack'], {}), null, 'attacked players cannot pass the attack on with Attack');
+  assert.strictEqual(g.phase, 'play'); assert.strictEqual(g.turn, 'mint'); assert.strictEqual(g.left, 2);
+}
+{ // rule dodgeAtk: off = no Skip while attacked either; on = every Skip cancels ONE owed turn
+  const mkAtk = on => { const g = M.newGame(Object.assign({}, M.DEFAULT_SETTINGS, { dodgeAtk: on }), ['coral', 'mint', 'sky'], 'coral');
+    g.hands.coral = ['attack']; g.hands.mint = ['skip', 'skip', 'attack', 'clone', 'cat1']; g.hands.sky = ['cat3'];
+    M.play(g, 'coral', ['attack'], {}); M.resolve(g, g.pending.pid, 0); return g; };
+  let g = mkAtk(false);
+  assert.strictEqual(M.play(g, 'mint', ['skip'], {}), null, 'default: Skip is locked while attacked'); assert.strictEqual(g.left, 2);
+  assert.strictEqual(M.canPlay(g, 'mint', ['clone'], {}), false, 'a Clone cannot copy an Attack onto yourself either (nothing to copy yet is fine too)');
+  g = mkAtk(true);
+  assert.strictEqual(M.play(g, 'mint', ['attack'], {}), null, 'dodgeAtk does not re-enable Attack');
+  assert(M.play(g, 'mint', ['skip'], {})); M.resolve(g, g.pending.pid, 0);
+  assert.strictEqual(g.turn, 'mint'); assert.strictEqual(g.left, 1, 'one Skip = one owed turn less');
+  assert(M.play(g, 'mint', ['skip'], {})); M.resolve(g, g.pending.pid, 0);
+  assert.strictEqual(g.turn, 'sky', 'the second Skip ends the last turn'); assert.strictEqual(g.left, 1);
+  g = mkAtk(false); g.turn = 'sky'; g.left = 1; g.hands.sky = ['skip']; assert(M.play(g, 'sky', ['skip'], {}), 'Skip is normal when not attacked');
+  assert.strictEqual(M.normalizeSettings({ dodgeAtk: 'yes' }).dodgeAtk, false); assert.strictEqual(M.normalizeSettings({ dodgeAtk: true }).dodgeAtk, true);
+  // bots never choose a locked card
+  for (let i = 0; i < 300; i++) { const b = mkAtk(false); b.hands.mint = ['skip', 'attack', 'shuffle', 'future']; const a = M.botPlay(b, 'mint', 'hard'); if (a.t === 'play') assert(a.kinds[0] !== 'skip' && a.kinds[0] !== 'attack', 'bot picked ' + a.kinds); }
+}
+{ // Clone copies a Defuse: right after one was used, a Clone saves the next bomb drawer
+  const mk = (hands) => { const g = M.newGame(M.DEFAULT_SETTINGS, ['coral', 'mint', 'sky'], 'coral'); g.hands.coral = ['defuse']; g.hands.mint = hands; g.hands.sky = ['cat3'];
+    g.deck = ['bomb', 'cat1', 'cat2', 'bomb']; M.draw(g, 'coral'); M.reinsert(g, 'coral', 0); return g; };       // coral defuses, slides the bomb back on top
+  let g = mk(['clone', 'cat1']);
+  assert.strictEqual(g.last, 'defuse'); assert.strictEqual(g.turn, 'mint'); assert(M.cloneDefuse(g, 'mint'));
+  M.draw(g, 'mint'); assert.strictEqual(g.phase, 'reinsert', 'the Clone defused it'); assert.strictEqual(g.alive.mint, true); assert(!g.hands.mint.includes('clone'), 'the Clone was spent');
+  assert(g.log.some(e => e.k === 'defuse' && e.by === 'mint' && e.clone === 1));
+  g = mk(['cat1']); M.draw(g, 'mint'); assert.strictEqual(g.alive.mint, false, 'no Clone, no Defuse: boom');
+  g = mk(['clone']); g.last = 'attack'; assert(!M.cloneDefuse(g, 'mint')); M.draw(g, 'mint'); assert.strictEqual(g.alive.mint, false, 'only right after a Defuse');
+  g = mk(['clone', 'defuse']); M.draw(g, 'mint'); assert(g.hands.mint.includes('clone') && !g.hands.mint.includes('defuse'), 'a real Defuse is used first');
 }
 // nope chain: one nope cancels, two nopes restore
 {
@@ -337,10 +366,12 @@ console.log('OK — ' + games + ' bot games finished (' + turns + ' bot turns), 
   g = solo(['skip', 'clone']); M.play(g, 'coral', ['skip'], {}); M.nope(g, 'mint') || (g.hands.mint.push('nope'), M.nope(g, 'mint')); finish(g);
   assert.strictEqual(M.cloneKind(g), 'skip', 'a Noped card counts as played'); g.turn = 'coral'; g.phase = 'play'; g.left = 1;
   M.play(g, 'coral', ['clone'], {}); finish(g); assert.strictEqual(g.turn, 'mint', 'cloned Skip ends my turn');
-  // Clone of a pair needs its own target; Clone of Favor can ask a new player (teammate included)
-  g = solo(['cat1', 'cat1', 'clone']); M.play(g, 'coral', ['cat1', 'cat1'], { target: 'mint' }); finish(g); g.turn = 'coral'; g.phase = 'play'; g.hands.sky = ['cat3', 'cat3'];
-  assert(!M.canPlay(g, 'coral', ['clone'], {}), 'needs a target'); assert(M.canPlay(g, 'coral', ['clone'], { target: 'sky' }));
-  const before = g.hands.coral.length; M.play(g, 'coral', ['clone'], { target: 'sky' }); finish(g); assert.strictEqual(g.hands.coral.length, before - 1 + 1, 'stole one card');
+  // A Clone played alone after a COMBO turns into ONE cat card of it (a five: one random cat), instantly: no Nope window, nobody's turn changes. A Favor copy can ask a new player.
+  g = solo(['cat1', 'cat1', 'clone', 'cat2', 'cat2', 'cat2', 'cat3', 'cat4', 'cat5']); M.play(g, 'coral', ['cat1', 'cat1'], { target: 'mint' }); finish(g); g.turn = 'coral'; g.phase = 'play'; assert.strictEqual(M.cloneKind(g), 'cat');
+  assert(M.canPlay(g, 'coral', ['clone'], {})); const hv = g.v; assert(M.play(g, 'coral', ['clone'], {})); assert.strictEqual(g.phase, 'play', 'no Nope window'); assert.strictEqual(g.turn, 'coral'); assert(!g.hands.coral.includes('clone'), 'the Clone is gone'); assert(g.hands.coral.filter(k => k === 'cat1').length >= 1);
+  assert(g.ev.some(e => e.k === 'cloneCat' && e.card === 'cat1'), 'turned into the cat of the pair');
+  g.hands.coral.push('clone'); M.play(g, 'coral', ['cat2', 'cat2', 'cat2'], { target: 'mint', name: 'defuse' }); finish(g); g.turn = 'coral'; g.phase = 'play'; const h2 = g.hands.coral.length; M.play(g, 'coral', ['clone'], {}); assert(g.ev.some(e => e.k === 'cloneCat' && e.card === 'cat2'), 'a triple gives one of its cats'); assert.strictEqual(g.hands.coral.length, h2, 'one card in, one card out');
+  g = solo(['favor', 'clone']); g.hands.sky = ['cat3', 'cat3']; M.play(g, 'coral', ['favor'], { target: 'mint' }); finish(g); g.turn = 'coral'; g.phase = 'play'; assert(!M.canPlay(g, 'coral', ['clone'], {}), 'needs a target'); assert(M.canPlay(g, 'coral', ['clone'], { target: 'sky' }));
   // clone the clone: still copies the underlying effect
   g = solo(['shuffle', 'clone', 'clone']); M.play(g, 'coral', ['shuffle'], {}); finish(g); g.turn = 'coral'; g.phase = 'play';
   M.play(g, 'coral', ['clone'], {}); finish(g); assert.strictEqual(g.last, 'shuffle'); g.turn = 'coral'; g.phase = 'play'; assert(M.play(g, 'coral', ['clone'], {}));
@@ -382,12 +413,14 @@ console.log('OK — ' + games + ' bot games finished (' + turns + ' bot turns), 
   assert.strictEqual(g.deck.length + g.discard.length + g.order.reduce((n, c) => n + g.hands[c].length, 0), T5, 'cards conserved');
   // the five cats themselves are in the discard once played, so they may be named; a Noped five just cancels
   g = five(); g.hands.mint.push('nope'); M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'cat5'], { name: 'cat5' }); M.nope(g, 'mint'); finish(g); assert.deepStrictEqual(g.hands.coral, ['cat1']); assert.strictEqual(g.discard.filter(k => k === 'cat5').length, 1);
-  // a Clone copies it and takes a SECOND card; when the wanted card is gone the copy fizzles
-  g = five({ cloneAny: true }); g.hands.mint = ['clone']; g.discard = ['defuse', 'attack']; M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'cat5'], { name: 'defuse' }); finish(g);
-  assert.strictEqual(M.cloneKind(g), 'five'); g.turn = 'coral'; g.phase = 'play'; g.hands.coral.push('clone'); assert(!M.canPlay(g, 'coral', ['clone'], {}), 'clone of five needs a name'); assert(M.canPlay(g, 'coral', ['clone'], { name: 'attack' }));
-  M.play(g, 'coral', ['clone'], { name: 'attack' }); finish(g); assert(g.hands.coral.includes('attack'));
-  g = five({ cloneAny: true }); g.hands.mint = ['clone']; g.discard = ['defuse']; M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'cat5'], { name: 'defuse' }); M.play(g, 'mint', ['clone'], { name: 'defuse' }); finish(g);
-  assert.deepStrictEqual(g.hands.coral.filter(k => k === 'defuse').length, 1); assert.strictEqual(g.hands.mint.filter(k => k === 'defuse').length, 0, 'the single Defuse went to the first player only'); assert(g.ev.some(e => e.k === 'fizzle'));
+  // a Clone after a five turns into ONE random cat of the five
+  g = five({ cloneAny: true }); g.hands.coral.push('clone'); g.discard = ['defuse', 'attack']; M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'cat5'], { name: 'defuse' }); finish(g);
+  assert.strictEqual(M.cloneKind(g), 'cat'); const seen = new Set(); for (let k = 0; k < 80; k++) { const h = M.newGame(M.normalizeSettings({}), ['coral', 'mint'], 'coral'); h.last = 'five'; h.hands.coral = ['clone']; h.turn = 'coral'; h.phase = 'play'; M.play(h, 'coral', ['clone'], {}); assert.strictEqual(h.hands.coral.length, 1); seen.add(h.hands.coral[0]); }
+  assert.strictEqual(seen.size, 5, 'every cat of the five can come up'); [...seen].forEach(k => assert(M.CATS.includes(k)));
+  // when the named card is gone by the time the five resolves, it fizzles (two fives naming the one Defuse)
+  g = five(); g.discard = ['defuse']; g.hands.coral = ['cat1', 'cat2', 'cat3', 'cat4', 'cat5']; g.hands.mint = ['cat1', 'cat2', 'cat3', 'cat4', 'cat5']; M.play(g, 'coral', g.hands.coral.slice(), { name: 'defuse' }); const pend = g.pending; g.discard.push('defuse');
+  finish(g); assert.strictEqual(g.hands.coral.filter(k => k === 'defuse').length, 1); assert(pend && g.phase === 'play');
+  g.discard = []; g.pending = null; g.phase = 'pending'; g.pid++; g.pending = { pid: g.pid, by: 'mint', kinds: ['cat1'], kind: 'five', copy: null, target: null, name: 'defuse', own: true, nopes: [], passes: {}, n: 0, under: [] }; finish(g); assert.strictEqual(g.hands.mint.filter(k => k === 'defuse').length, 0, 'nothing left to take'); assert(g.ev.some(e => e.k === 'fizzle'));
   // two Favor requests (original + clone) are served one after the other
   g = solo(['favor'], { cloneAny: true }); g.hands.mint = ['clone', 'cat1', 'cat2']; g.hands.sky = ['cat3', 'cat4'];
   M.play(g, 'coral', ['favor'], { target: 'sky' }); M.play(g, 'mint', ['clone'], { target: 'sky' }); finish(g);
@@ -399,28 +432,28 @@ console.log('OK — ' + games + ' bot games finished (' + turns + ' bot turns), 
 }
 console.log('OK — Favor on teammate + Clone card rules passed');
 
-// ====================================================================== Clone as a cat card inside a combo
+// ====================================================================== Clone as a WILDCARD inside a combo (replaces ONE cat of a pair / triple / five)
 {
-  const mk = hand => { const g = M.newGame(M.normalizeSettings({}), ['coral', 'mint', 'sky'], 'coral'); g.hands.coral = hand; g.hands.mint = ['cat1', 'cat2']; g.hands.sky = ['cat3']; g.deck = ['cat4', 'cat5', 'cat1', 'cat2', 'cat3', 'bomb', 'bomb', 'cat4']; g.discard = []; return g; };
+  const mk = hand => { const g = M.newGame(M.normalizeSettings({}), ['coral', 'mint', 'sky'], 'coral'); g.hands.coral = hand; g.hands.mint = ['cat1', 'cat2']; g.hands.sky = ['cat3']; g.deck = ['cat4', 'cat5', 'cat1', 'cat2', 'cat3', 'bomb', 'bomb', 'cat4']; g.discard = ['defuse']; return g; };
   const finish = g => { while (g.phase === 'pending') M.resolve(g, g.pending.pid, g.pending.n); return g; };
-  let g = mk(['cat3', 'cat3', 'cat3', 'clone', 'cat1']);
-  assert(!M.canPlay(g, 'coral', ['cat3', 'clone'], { target: 'mint' }), 'nothing played yet: no cat to copy'); assert.strictEqual(M.wildCat(g), null);
-  M.play(g, 'coral', ['cat3', 'cat3'], { target: 'mint' }); finish(g); g.turn = 'coral'; g.phase = 'play'; g.left = 1;
-  assert.strictEqual(M.wildCat(g), 'cat3', 'the cat of the last pair');
-  assert(M.canPlay(g, 'coral', ['cat3', 'clone'], { target: 'mint' }), 'Clone + cat3 = pair of cat3'); assert(!M.canPlay(g, 'coral', ['cat1', 'clone'], { target: 'mint' }), 'Clone is cat3, cat1 does not match');
-  g.hands.coral.push('cat3'); assert(M.canPlay(g, 'coral', ['cat3', 'cat3', 'clone'], { target: 'mint', name: 'defuse' }), 'triple with a Clone'); g.hands.coral.pop();
-  const n0 = g.hands.coral.length; assert(M.play(g, 'coral', ['cat3', 'clone'], { target: 'mint' })); assert.strictEqual(g.pending.kind, 'pair'); assert.strictEqual(g.last, 'pair'); assert.strictEqual(g.lastCat, 'cat3'); finish(g);
+  let g = mk(['cat3', 'clone', 'cat1', 'cat1', 'cat1', 'cat2', 'cat4', 'cat5']);
+  assert(M.canPlay(g, 'coral', ['cat3', 'clone'], { target: 'mint' }), 'Clone + any cat = a pair of that cat, no earlier card needed'); assert(M.canPlay(g, 'coral', ['cat1', 'clone'], { target: 'mint' }));
+  assert(!M.canPlay(g, 'coral', ['clone', 'clone'], { target: 'mint' }), 'a combo needs a real cat'); assert(!M.canPlay(g, 'coral', ['cat1', 'cat2', 'clone'], { target: 'mint', name: 'defuse' }), 'Clone + two different cats is not a triple');
+  assert(M.canPlay(g, 'coral', ['cat1', 'cat1', 'clone'], { target: 'mint', name: 'defuse' }), 'triple with a Clone'); assert(!M.canPlay(g, 'coral', ['cat1', 'cat1', 'clone'], { target: 'mint', name: 'nonsense' }));
+  assert(!M.canPlay(g, 'coral', ['cat3', 'clone'], { target: 'mint' }, { combos: false }), 'the combos setting still switches it off');
+  const n0 = g.hands.coral.length; assert(M.play(g, 'coral', ['clone', 'cat1'], { target: 'mint' })); assert.strictEqual(g.pending.kind, 'pair'); assert.strictEqual(g.last, 'pair'); assert.strictEqual(g.lastCat, 'cat1', 'the pair counts as cat1'); finish(g);
   assert.strictEqual(g.hands.coral.length, n0 - 2 + 1, 'both cards left the hand, one stolen card came in'); assert(!g.hands.coral.includes('clone'));
-  // combos setting still switches it off
-  g.turn = 'coral'; g.phase = 'play'; g.hands.coral = ['cat3', 'clone']; assert(!M.canPlay(g, 'coral', ['cat3', 'clone'], { target: 'mint' }, { combos: false }));
-  // five: the Clone fills the missing cat when that is the cat played last
-  g = mk(['cat1', 'cat2', 'cat3', 'cat4', 'clone', 'cat5', 'cat5']); g.discard = ['defuse']; g.hands.mint = ['cat5', 'cat5']; g.turn = 'mint'; M.play(g, 'mint', ['cat5', 'cat5'], { target: 'coral' }); finish(g); g.turn = 'coral'; g.phase = 'play';
-  g.hands.coral = ['cat1', 'cat2', 'cat3', 'cat4', 'clone']; assert.strictEqual(M.wildCat(g), 'cat5');
-  assert(M.canPlay(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'clone'], { name: 'defuse' })); M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'clone'], { name: 'defuse' }); finish(g);
-  assert.deepStrictEqual(g.hands.coral, ['defuse']); assert.strictEqual(g.lastCat, null, 'after a five there is no single cat to copy'); assert.strictEqual(M.wildCat(g), null);
-  // after a non-cat card the Clone copies that card instead, and cannot join a combo
-  g = mk(['skip', 'cat1', 'clone']); M.play(g, 'coral', ['skip'], {}); finish(g); g.turn = 'coral'; g.phase = 'play'; assert(!M.canPlay(g, 'coral', ['cat1', 'clone'], { target: 'mint' }));
+  // five: Clone + 4 different cats = the missing one
+  g = mk(['cat1', 'cat2', 'cat3', 'cat4', 'clone']); assert(M.canPlay(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'clone'], { name: 'defuse' })); assert.deepStrictEqual(M.effKinds(g, ['cat1', 'cat2', 'cat3', 'cat4', 'clone']).slice().sort(), M.CATS.slice().sort());
+  M.play(g, 'coral', ['cat1', 'cat2', 'cat3', 'cat4', 'clone'], { name: 'defuse' }); finish(g); assert.deepStrictEqual(g.hands.coral, ['defuse']); assert.strictEqual(g.last, 'five');
+  g = mk(['cat1', 'cat1', 'cat3', 'cat4', 'clone']); assert(!M.canPlay(g, 'coral', ['cat1', 'cat1', 'cat3', 'cat4', 'clone'], { name: 'defuse' }), 'not five different cats');
+  g = mk(['cat1', 'cat2', 'cat3', 'clone', 'clone']); assert(!M.canPlay(g, 'coral', ['cat1', 'cat2', 'cat3', 'clone', 'clone'], { name: 'defuse' }), 'only ONE Clone per combo');
+  // alone after a non-cat card the Clone copies that card and cannot be a combo of its own
+  g = mk(['skip', 'cat1', 'clone']); M.play(g, 'coral', ['skip'], {}); finish(g); g.turn = 'coral'; g.phase = 'play'; assert.strictEqual(M.cloneKind(g), 'skip'); assert(!M.canPlay(g, 'coral', ['clone', 'clone'], { target: 'mint' }));
+  // the card played LAST is what counts, however many turns ago and whoever played it
+  g = mk(['skip', 'clone']); g.hands.mint = ['future']; M.play(g, 'coral', ['skip'], {}); finish(g); g.turn = 'sky'; g.left = 1; g.phase = 'play'; g.turn = 'mint'; M.draw(g, 'mint'); g.turn = 'coral'; g.phase = 'play'; assert.strictEqual(M.cloneKind(g), 'skip', 'draws and turns do not erase the last played card');
 }
+
 // ====================================================================== fuzz: five cats + Clone any time (cloneAny) keep the match consistent
 {
   const total = g => g.deck.length + g.discard.length + g.order.reduce((n, c) => n + g.hands[c].length, 0);
